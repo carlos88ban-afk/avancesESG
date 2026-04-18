@@ -4,6 +4,7 @@ export const BUSINESS_UNITS = [
   "SIP",
   "REAL PLAZA",
   "PROMART",
+  "OECHSLE",
 ];
 
 export const UNIT_NORMALIZATION = {

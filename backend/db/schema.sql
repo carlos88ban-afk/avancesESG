@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS proveedores_criticos (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   name        TEXT        NOT NULL,
   ruc         TEXT,
-  type        TEXT        NOT NULL CHECK (type IN ('bienes', 'servicios', 'ambos')),
+  type        TEXT        NOT NULL CHECK (type IN ('retail', 'no retail')),
   units       TEXT[]      NOT NULL DEFAULT '{}',
   status      TEXT        NOT NULL DEFAULT 'activo' CHECK (status IN ('activo', 'inactivo')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
