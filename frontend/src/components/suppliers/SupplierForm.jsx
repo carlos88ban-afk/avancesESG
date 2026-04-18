@@ -12,7 +12,7 @@ export default function SupplierForm({ open, onClose, onSubmit, initialData }) {
     name: '',
     ruc: '',
     units: [],
-    type: 'bienes',
+    type: 'retail',
   });
 
   const toggleUnit = (unit) => {
@@ -71,7 +71,7 @@ export default function SupplierForm({ open, onClose, onSubmit, initialData }) {
           <div className="space-y-2">
             <Label>Unidades de Negocio</Label>
             <div className="grid grid-cols-2 gap-2 pt-1">
-              {BUSINESS_UNITS.filter(u => u !== "QUIMICA SUIZA" && u !== "FINANCIERA OH").map((unit) => (
+              {BUSINESS_UNITS.map((unit) => (
                 <label key={unit} className="flex items-center gap-2 text-sm cursor-pointer">
                   <Checkbox
                     checked={form.units.includes(unit)}

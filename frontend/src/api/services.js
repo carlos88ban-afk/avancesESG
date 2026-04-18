@@ -32,6 +32,9 @@ export const completionService = {
   
   // Batch create completions
   createBatch: (data) => apiClient.post('/api/completions/batch', data),
+
+  // Re-run matching engine against all existing proveedores records
+  rematch: () => apiClient.post('/api/completions/rematch'),
 };
 
 export const uploadService = {

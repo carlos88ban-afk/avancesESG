@@ -1,20 +1,33 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supplierService, completionService } from '@/api/services';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, CheckCircle2, XCircle, Filter } from 'lucide-react';
+import { Search, CheckCircle2, XCircle, Filter, RefreshCw } from 'lucide-react';
 import { SUPPLIER_TYPES } from '@/lib/constants';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
 
 export default function Progress() {
+  const queryClient = useQueryClient();
   const [unitFilter, setUnitFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
+
+  const rematchMutation = useMutation({
+    mutationFn: () => completionService.rematch(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['completions'] });
+      const n = data?.newCompletions ?? 0;
+      toast.success(n > 0 ? `Se encontraron ${n} nuevos completados` : 'Sin nuevos completados');
+    },
+    onError: (err) => toast.error(err.message || 'Error al actualizar avances'),
+  });
 
   const { data: suppliers = [], isLoading: loadingSuppliers } = useQuery({
     queryKey: ['critical-suppliers'],
@@ -74,9 +87,21 @@ export default function Progress() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Avances</h1>
-        <p className="text-sm text-muted-foreground mt-1">Estado de completación de encuestas ESG por proveedor y unidad</p>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Avances</h1>
+          <p className="text-sm text-muted-foreground mt-1">Estado de completación de encuestas ESG por proveedor y unidad</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-2"
+          onClick={() => rematchMutation.mutate()}
+          disabled={rematchMutation.isPending}
+        >
+          <RefreshCw className={`w-4 h-4 ${rematchMutation.isPending ? 'animate-spin' : ''}`} />
+          {rematchMutation.isPending ? 'Actualizando...' : 'Actualizar avances'}
+        </Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 flex-wrap">

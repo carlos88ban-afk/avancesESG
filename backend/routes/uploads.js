@@ -7,6 +7,7 @@ const fs = require('fs');
 const supabase = require('../db/supabase');
 const { parseExcelFile } = require('../lib/excelParser');
 const { runMatchingEngine } = require('../lib/matchingEngine');
+const { normalizeText } = require('../lib/constants');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -78,7 +79,7 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
-    // --- 2. Deduplicate by ruc+unit ---
+    // --- 2. Deduplicate within the file by ruc+unit ---
     const seen = new Set();
     const uniqueRecords = records.filter((r) => {
       const key = `${r.ruc ?? ''}__${r.unit}`;
@@ -87,15 +88,32 @@ router.post('/:fileId/process', async (req, res) => {
       return true;
     });
 
-    // --- 3. Insert raw records into proveedores ---
+    // --- 3. Deduplicate against existing proveedores by normalized name ---
+    const { data: existingProvs } = await supabase
+      .from('proveedores')
+      .select('provider_name');
+
+    const existingNames = new Set(
+      (existingProvs || []).map((p) => normalizeText(p.provider_name))
+    );
+
+    const newRecords = uniqueRecords.filter((r) => {
+      const norm = normalizeText(r.provider_name);
+      if (!norm) return true;
+      if (existingNames.has(norm)) return false;
+      existingNames.add(norm); // prevent within-batch name duplicates too
+      return true;
+    });
+
+    // Insert only truly new records into proveedores
     const BATCH = 500;
-    for (let i = 0; i < uniqueRecords.length; i += BATCH) {
-      const batch = uniqueRecords.slice(i, i + BATCH).map((r) => ({ ...r, upload_id: fileId }));
+    for (let i = 0; i < newRecords.length; i += BATCH) {
+      const batch = newRecords.slice(i, i + BATCH).map((r) => ({ ...r, upload_id: fileId }));
       const { error: insertErr } = await supabase.from('proveedores').insert(batch);
       if (insertErr) throw insertErr;
     }
 
-    // --- 4. Load critical suppliers and existing avances ---
+    // --- 5. Load critical suppliers and existing avances ---
     const [{ data: criticalSuppliers, error: suppErr }, { data: existingAvances, error: avErr }] =
       await Promise.all([
         supabase.from('proveedores_criticos').select('*').eq('status', 'activo'),
@@ -105,14 +123,14 @@ router.post('/:fileId/process', async (req, res) => {
     if (suppErr) throw suppErr;
     if (avErr) throw avErr;
 
-    // --- 5. Run matching engine ---
+    // --- 6. Run matching engine against all records from this upload ---
     const newAvances = runMatchingEngine(
       uniqueRecords,
       criticalSuppliers ?? [],
       existingAvances ?? []
     );
 
-    // --- 6. Insert new avances ---
+    // --- 7. Insert new avances ---
     if (newAvances.length > 0) {
       const avancesWithUpload = newAvances.map((a) => ({ ...a, upload_id: fileId }));
       const { error: insertAvErr } = await supabase.from('avances').insert(avancesWithUpload);
@@ -121,7 +139,7 @@ router.post('/:fileId/process', async (req, res) => {
 
     const matchedSuppliers = new Set(newAvances.map((a) => a.critical_supplier_id)).size;
 
-    // --- 7. Update upload record with results ---
+    // --- 8. Update upload record with results ---
     await supabase
       .from('uploads')
       .update({

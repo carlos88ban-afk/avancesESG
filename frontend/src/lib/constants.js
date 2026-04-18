@@ -1,20 +1,19 @@
 export const BUSINESS_UNITS = [
-  "SUPERMERCADOS PERUANOS",
-  "INKAFARMA",
+  "SPSA",
   "FARMACIAS PERUANAS",
-  "REAL PLAZA",
-  "FINANCIERA OH",
   "SIP",
-  "INTERCORP RETAIL",
-  "QUIMICA SUIZA"
+  "REAL PLAZA",
+  "PROMART",
 ];
 
 export const UNIT_NORMALIZATION = {
+  "SUPERMERCADOS PERUANOS": "SPSA",
+  "INKAFARMA": "FARMACIAS PERUANAS",
   "QUIMICA SUIZA": "FARMACIAS PERUANAS",
-  "FINANCIERA OH": "SIP"
+  "FINANCIERA OH": "SIP",
 };
 
-export const SUPPLIER_TYPES = ["bienes", "servicios", "ambos"];
+export const SUPPLIER_TYPES = ["retail", "no retail"];
 
 export function normalizeText(text) {
   if (!text) return "";

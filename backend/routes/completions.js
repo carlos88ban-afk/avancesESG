@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../db/supabase');
+const { runMatchingEngine } = require('../lib/matchingEngine');
 
 // GET /api/completions
 router.get('/', async (req, res) => {
@@ -60,6 +61,40 @@ router.post('/batch', async (req, res) => {
       .select();
     if (error) throw error;
     res.status(201).json({ inserted: data.length, data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/completions/rematch  — re-run matching against all stored proveedores
+router.post('/rematch', async (req, res) => {
+  try {
+    const [
+      { data: allProviders,       error: provErr },
+      { data: criticalSuppliers,  error: suppErr },
+      { data: existingAvances,    error: avErr },
+    ] = await Promise.all([
+      supabase.from('proveedores').select('ruc, provider_name, unit, update_date'),
+      supabase.from('proveedores_criticos').select('*').eq('status', 'activo'),
+      supabase.from('avances').select('critical_supplier_id, unit'),
+    ]);
+
+    if (provErr) throw provErr;
+    if (suppErr) throw suppErr;
+    if (avErr) throw avErr;
+
+    const newAvances = runMatchingEngine(
+      allProviders ?? [],
+      criticalSuppliers ?? [],
+      existingAvances ?? []
+    );
+
+    if (newAvances.length > 0) {
+      const { error: insertErr } = await supabase.from('avances').insert(newAvances);
+      if (insertErr) throw insertErr;
+    }
+
+    res.json({ newCompletions: newAvances.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
