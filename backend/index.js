@@ -7,7 +7,7 @@ const completionsRouter = require('./routes/completions');
 const uploadsRouter    = require('./routes/uploads');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL,

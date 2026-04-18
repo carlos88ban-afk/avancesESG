@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:10000';
 
 const _client = axios.create({
   baseURL: API_BASE_URL,
@@ -20,7 +20,13 @@ _client.interceptors.request.use(
 _client.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    console.error('API Error:', error);
+    if (error.code === 'ERR_NETWORK') {
+      console.error('Network Error: Unable to connect to the API server. Please check your internet connection or API URL.');
+    } else if (error.response) {
+      console.error('API Error:', error.response.status, error.response.data);
+    } else {
+      console.error('API Error:', error.message);
+    }
     return Promise.reject(error);
   }
 );
