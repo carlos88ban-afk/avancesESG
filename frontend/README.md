@@ -15,7 +15,7 @@ Este es el frontend de la aplicación, construido con React y Vite.
    ```
 
 3. Configura las variables en `.env`:
-   - `VITE_API_BASE_URL`: URL del backend (ej: https://tu-backend.onrender.com/api)
+   - `VITE_API_URL`: URL del backend (ej: https://avancesesg.onrender.com)
 
 4. Ejecuta en desarrollo:
    ```bash
@@ -27,7 +27,7 @@ Este es el frontend de la aplicación, construido con React y Vite.
 1. Sube este directorio a un repositorio de Git.
 2. Conecta el repo a Vercel.
 3. Configura las variables de entorno en Vercel:
-   - `VITE_API_BASE_URL`: URL del backend desplegado.
+   - `VITE_API_URL`: URL del backend desplegado (ej: https://avancesesg.onrender.com).
 
 Vercel detectará automáticamente el proyecto Vite.
 
