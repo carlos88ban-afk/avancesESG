@@ -34,14 +34,24 @@ function runMatchingEngine(records, criticalSuppliers, existingAvances) {
   return [...newAvances.values()];
 }
 
+// --- Normalization helpers for rematch (error-tolerant) ---
+const normalizeName = (str) =>
+  (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
+
+const normalizeRuc = (ruc) =>
+  (ruc || '').toString().trim();
+
 /**
- * Used by the Refresh button: checks each critical supplier against the full
- * proveedores table by name OR ruc (ignoring unit).
+ * Used by the Refresh button: tolerant matching of critical suppliers against
+ * the full proveedores table by name OR ruc (unit is NOT considered).
  *
- * Algorithm:
- *   1. Build O(1) lookup sets from all providers (one pass).
- *   2. For each critical supplier check if name OR ruc matches.
- *   3. If matched → create avances for ALL its units (not just the matched unit).
+ * Match conditions (at least one must be true):
+ *   1. normalizeName(critico.name) === normalizeName(proveedor.provider_name)
+ *   2. normalizeRuc(critico.ruc)   === normalizeRuc(proveedor.ruc)
+ *   3. normalizeRuc(critico.ruc).slice(0,-1) === normalizeRuc(proveedor.ruc).slice(0,-1)
+ *
+ * If matched → ALL units of that critical supplier are marked as completed.
+ * O(providers + criticalSuppliers) — no nested loops.
  *
  * @param {Array<{ruc: string|null, provider_name: string|null}>} allProviders
  * @param {Array<{id: string, name: string, ruc?: string, units: string[]}>} criticalSuppliers
@@ -50,23 +60,23 @@ function runMatchingEngine(records, criticalSuppliers, existingAvances) {
 function rematchSuppliers(allProviders, criticalSuppliers, existingAvances) {
   const today = new Date().toISOString().split('T')[0];
 
-  // --- Build lookup sets from proveedores (O(n)) ---
-  const nameSet   = new Set(); // normalized names
-  const rucSet    = new Set(); // exact RUCs
-  const rucShort  = new Set(); // RUCs without last digit
+  // --- Build O(1) lookup sets from proveedores (single pass) ---
+  const nameSet  = new Set(); // normalized names
+  const rucSet   = new Set(); // exact normalized RUCs
+  const shortSet = new Set(); // RUCs with last digit removed (both sides truncated)
 
   for (const p of allProviders) {
-    const norm = normalizeText(p.provider_name);
-    if (norm) nameSet.add(norm);
+    const name = normalizeName(p.provider_name);
+    if (name) nameSet.add(name);
 
-    const ruc = (p.ruc || '').trim();
+    const ruc = normalizeRuc(p.ruc);
     if (ruc) {
       rucSet.add(ruc);
-      if (ruc.length >= 2) rucShort.add(ruc.slice(0, -1));
+      if (ruc.length >= 2) shortSet.add(ruc.slice(0, -1));
     }
   }
 
-  // --- Existing avances as Set for O(1) skip ---
+  // --- Existing avances for O(1) skip check ---
   const existingKeys = new Set(
     existingAvances.map((a) => `${a.critical_supplier_id}__${a.unit}`)
   );
@@ -74,24 +84,26 @@ function rematchSuppliers(allProviders, criticalSuppliers, existingAvances) {
   const newAvances = [];
 
   for (const supplier of criticalSuppliers) {
-    // --- Try to match by name OR ruc (no unit check) ---
-    const normName  = normalizeText(supplier.name);
-    const supRuc    = (supplier.ruc || '').trim();
-    const supShort  = supRuc.length >= 2 ? supRuc.slice(0, -1) : '';
+    const supName  = normalizeName(supplier.name);
+    const supRuc   = normalizeRuc(supplier.ruc);
+    const supShort = supRuc.length >= 2 ? supRuc.slice(0, -1) : '';
 
+    // Condition 1: exact name match
+    // Condition 2: exact RUC match
+    // Condition 3: both RUCs truncated to same prefix (last digit ignored)
     let matchedBy = null;
 
     if (supRuc && rucSet.has(supRuc)) {
       matchedBy = 'ruc_exact';
-    } else if (supShort && (rucShort.has(supShort) || rucSet.has(supShort))) {
+    } else if (supShort && shortSet.has(supShort)) {
       matchedBy = 'ruc_partial';
-    } else if (normName && nameSet.has(normName)) {
+    } else if (supName && nameSet.has(supName)) {
       matchedBy = 'name_match';
     }
 
-    if (!matchedBy) continue;
+    if (!matchedBy) continue; // ← no match: skip this supplier
 
-    // --- Mark ALL units of this supplier as completed ---
+    // Match found → mark ALL units as completed (unit is irrelevant for matching)
     for (const unit of supplier.units || []) {
       const key = `${supplier.id}__${unit}`;
       if (!existingKeys.has(key)) {
