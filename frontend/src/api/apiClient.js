@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:10000';
+// In dev: empty string → Vite proxy forwards /api/* to localhost:10000
+// In production: VITE_API_URL = https://avancesesg.onrender.com
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 const _client = axios.create({
   baseURL: API_BASE_URL,
