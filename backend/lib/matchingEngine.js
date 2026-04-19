@@ -39,16 +39,17 @@ const normalizeName = (str) =>
   (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
 
 const normalizeRuc = (ruc) =>
-  (ruc || '').toString().trim();
+  (ruc || '').toString().replace(/\D/g, '').trim();
 
 /**
  * Used by the Refresh button: tolerant matching of critical suppliers against
  * the full proveedores table by name OR ruc (unit is NOT considered).
  *
- * Match conditions (at least one must be true):
- *   1. normalizeName(critico.name) === normalizeName(proveedor.provider_name)
- *   2. normalizeRuc(critico.ruc)   === normalizeRuc(proveedor.ruc)
- *   3. normalizeRuc(critico.ruc).slice(0,-1) === normalizeRuc(proveedor.ruc).slice(0,-1)
+ * Match conditions — evaluated in priority order (first match wins):
+ *   1. ruc_exact:   normalizeRuc(critico.ruc)  === normalizeRuc(proveedor.ruc)
+ *   2. name_is_ruc: normalizeRuc(critico.name) === normalizeRuc(proveedor.ruc)
+ *   3. ruc_partial: normalizeRuc(critico.ruc).slice(0,-1) === normalizeRuc(proveedor.ruc).slice(0,-1)
+ *   4. name_match:  normalizeName(critico.name) === normalizeName(proveedor.provider_name)
  *
  * If matched → ALL units of that critical supplier are marked as completed.
  * O(providers + criticalSuppliers) — no nested loops.
@@ -88,13 +89,14 @@ function rematchSuppliers(allProviders, criticalSuppliers, existingAvances) {
     const supRuc   = normalizeRuc(supplier.ruc);
     const supShort = supRuc.length >= 2 ? supRuc.slice(0, -1) : '';
 
-    // Condition 1: exact name match
-    // Condition 2: exact RUC match
-    // Condition 3: both RUCs truncated to same prefix (last digit ignored)
+    const supNameAsRuc = normalizeRuc(supplier.name);
+
     let matchedBy = null;
 
     if (supRuc && rucSet.has(supRuc)) {
       matchedBy = 'ruc_exact';
+    } else if (supNameAsRuc && rucSet.has(supNameAsRuc)) {
+      matchedBy = 'name_is_ruc';
     } else if (supShort && shortSet.has(supShort)) {
       matchedBy = 'ruc_partial';
     } else if (supName && nameSet.has(supName)) {
