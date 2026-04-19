@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../db/supabase');
-const { runMatchingEngine } = require('../lib/matchingEngine');
+const { runMatchingEngine, rematchSuppliers } = require('../lib/matchingEngine');
 
 // GET /api/completions
 router.get('/', async (req, res) => {
@@ -66,15 +66,17 @@ router.post('/batch', async (req, res) => {
   }
 });
 
-// POST /api/completions/rematch  — re-run matching against all stored proveedores
+// POST /api/completions/rematch
+// Checks each critical supplier against ALL proveedores by name OR ruc (ignores unit).
+// If matched → marks ALL units of that supplier as completed.
 router.post('/rematch', async (req, res) => {
   try {
     const [
-      { data: allProviders,       error: provErr },
-      { data: criticalSuppliers,  error: suppErr },
-      { data: existingAvances,    error: avErr },
+      { data: allProviders,      error: provErr },
+      { data: criticalSuppliers, error: suppErr },
+      { data: existingAvances,   error: avErr },
     ] = await Promise.all([
-      supabase.from('proveedores').select('ruc, provider_name, unit, update_date'),
+      supabase.from('proveedores').select('ruc, provider_name'),
       supabase.from('proveedores_criticos').select('*').eq('status', 'activo'),
       supabase.from('avances').select('critical_supplier_id, unit'),
     ]);
@@ -83,10 +85,10 @@ router.post('/rematch', async (req, res) => {
     if (suppErr) throw suppErr;
     if (avErr) throw avErr;
 
-    const newAvances = runMatchingEngine(
-      allProviders ?? [],
+    const newAvances = rematchSuppliers(
+      allProviders      ?? [],
       criticalSuppliers ?? [],
-      existingAvances ?? []
+      existingAvances   ?? []
     );
 
     if (newAvances.length > 0) {
