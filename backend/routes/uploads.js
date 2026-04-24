@@ -6,7 +6,6 @@ const fs = require('fs');
 
 const supabase = require('../db/supabase');
 const { parseExcelFile } = require('../lib/excelParser');
-const { runMatchingEngine } = require('../lib/matchingEngine');
 const { normalizeText } = require('../lib/constants');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
@@ -105,41 +104,15 @@ router.post('/:fileId/process', async (req, res) => {
       }
     }
 
-    // --- 5. Load critical suppliers and existing avances ---
-    const [{ data: criticalSuppliers, error: suppErr }, { data: existingAvances, error: avErr }] =
-      await Promise.all([
-        supabase.from('proveedores_criticos').select('*').eq('status', 'activo'),
-        supabase.from('avances').select('critical_supplier_id, unit'),
-      ]);
-
-    if (suppErr) throw suppErr;
-    if (avErr) throw avErr;
-
-    // --- 6. Run matching engine against all records from this upload ---
-    const newAvances = runMatchingEngine(
-      uniqueRecords,
-      criticalSuppliers ?? [],
-      existingAvances ?? []
-    );
-
-    // --- 7. Insert new avances ---
-    if (newAvances.length > 0) {
-      const avancesWithUpload = newAvances.map((a) => ({ ...a, upload_id: fileId }));
-      const { error: insertAvErr } = await supabase.from('avances').insert(avancesWithUpload);
-      if (insertAvErr) throw insertAvErr;
-    }
-
-    const matchedSuppliers = new Set(newAvances.map((a) => a.critical_supplier_id)).size;
-
-    // --- 8. Update upload record with results ---
+    // --- 4. Update upload record with results ---
     await supabase
       .from('uploads')
       .update({
         status: 'processed',
         total_sheets: sheetCount,
         total_records: uniqueRecords.length,
-        new_completions: newAvances.length,
-        matched_suppliers: matchedSuppliers,
+        new_completions: 0,
+        matched_suppliers: 0,
         processed_at: new Date().toISOString(),
       })
       .eq('id', fileId);
@@ -150,8 +123,8 @@ router.post('/:fileId/process', async (req, res) => {
     res.json({
       totalSheets: sheetCount,
       totalRecords: uniqueRecords.length,
-      newCompletions: newAvances.length,
-      matchedSuppliers,
+      newCompletions: 0,
+      matchedSuppliers: 0,
     });
   } catch (err) {
     await supabase

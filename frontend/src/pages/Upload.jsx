@@ -66,8 +66,6 @@ export default function Upload() {
       setResults({
         totalSheets: data.totalSheets || 0,
         totalRecords: data.totalRecords || 0,
-        newCompletions: data.newCompletions || 0,
-        matchedSuppliers: data.matchedSuppliers || 0,
       });
 
       setProcessing(false);
@@ -88,13 +86,20 @@ export default function Upload() {
 
   const processingMessage = () => {
     if (!statusData) return 'Subiendo y preparando archivo...';
-    if (statusData.status === 'processing') return 'Realizando matching con proveedores críticos...';
+    if (statusData.status === 'processing') return 'Registrando proveedores en la base de datos...';
     if (statusData.status === 'processed') return 'Finalizando...';
-    return 'Procesando...';
+    return 'Procesando proveedores...';
   };
 
   return (
     <div className="space-y-6">
+      <style>{`
+        @keyframes progress-slide {
+          0%   { left: -45%; }
+          100% { left: 100%; }
+        }
+      `}</style>
+
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Cargar Archivo</h1>
         <p className="text-sm text-muted-foreground mt-1">Sube el archivo .xlsx exportado de la plataforma ESG</p>
@@ -164,22 +169,14 @@ export default function Upload() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <p className="text-2xl font-bold">{results.totalSheets}</p>
                 <p className="text-xs text-muted-foreground mt-1">Hojas procesadas</p>
               </div>
               <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <p className="text-2xl font-bold">{results.totalRecords}</p>
-                <p className="text-xs text-muted-foreground mt-1">Registros extraídos</p>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-lg">
-                <p className="text-2xl font-bold">{results.matchedSuppliers}</p>
-                <p className="text-xs text-muted-foreground mt-1">Proveedores matched</p>
-              </div>
-              <div className="text-center p-4 bg-accent/10 rounded-lg">
-                <p className="text-2xl font-bold text-accent">{results.newCompletions}</p>
-                <p className="text-xs text-muted-foreground mt-1">Nuevos completados</p>
+                <p className="text-xs text-muted-foreground mt-1">Proveedores registrados</p>
               </div>
             </div>
           </CardContent>
@@ -188,24 +185,34 @@ export default function Upload() {
 
       {processing && (
         <Card className="border-0 shadow-sm">
-          <CardContent className="p-8 text-center space-y-4">
-            <Loader2 className="w-10 h-10 mx-auto text-primary animate-spin" />
+          <CardContent className="p-8 space-y-5">
             <div>
-              <p className="font-medium">Procesando archivo...</p>
-              <p className="text-sm text-muted-foreground mt-1">{processingMessage()}</p>
-            </div>
-            {statusData?.total_records > 0 && (
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="font-bold text-base">{statusData.total_records}</p>
-                  <p className="text-xs text-muted-foreground">Registros extraídos</p>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-3">
-                  <p className="font-bold text-base">{statusData.matched_suppliers ?? '—'}</p>
-                  <p className="text-xs text-muted-foreground">Proveedores matched</p>
-                </div>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-sm font-medium">Procesando proveedores...</p>
+                {statusData?.total_records > 0 && (
+                  <p className="text-sm font-bold tabular-nums">
+                    {statusData.total_records} registros
+                  </p>
+                )}
               </div>
-            )}
+
+              {/* Indeterminate progress bar */}
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden relative">
+                <div
+                  className="h-full bg-primary rounded-full absolute"
+                  style={{
+                    width: '45%',
+                    animation: 'progress-slide 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                  }}
+                />
+              </div>
+
+              <p className="text-xs text-muted-foreground mt-2">{processingMessage()}</p>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              Esto puede tardar unos segundos dependiendo del tamaño del archivo
+            </p>
           </CardContent>
         </Card>
       )}
