@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +11,32 @@ export default function Upload() {
   const [file, setFile] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState(null);
+  const [statusData, setStatusData] = useState(null);
+  const pollingRef = useRef(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback((fileId) => {
+    pollingRef.current = setInterval(async () => {
+      try {
+        const status = await uploadService.getStatus(fileId);
+        setStatusData(status);
+        if (status.status === 'processed' || status.status === 'error') {
+          stopPolling();
+        }
+      } catch {
+        // ignore polling errors — the mutation handles the final outcome
+      }
+    }, 2500);
+  }, [stopPolling]);
+
+  // clean up interval on unmount
+  useEffect(() => stopPolling, [stopPolling]);
 
   const handleFileDrop = useCallback((e) => {
     e.preventDefault();
@@ -26,13 +52,14 @@ export default function Upload() {
   const uploadMutation = useMutation({
     mutationFn: async (fileObj) => {
       setProcessing(true);
+      setStatusData(null);
       const uploadResponse = await uploadService.uploadFile(fileObj);
-      
-      // Process the file
+      startPolling(uploadResponse.id);
       const processResponse = await uploadService.processFile(uploadResponse.id);
       return processResponse;
     },
     onSuccess: (data) => {
+      stopPolling();
       queryClient.invalidateQueries({ queryKey: ['completions'] });
       queryClient.invalidateQueries({ queryKey: ['critical-suppliers'] });
 
@@ -47,6 +74,7 @@ export default function Upload() {
       toast.success('Archivo procesado exitosamente');
     },
     onError: (error) => {
+      stopPolling();
       setProcessing(false);
       toast.error(error.message || 'Error al procesar el archivo');
     },
@@ -56,6 +84,13 @@ export default function Upload() {
     if (file) {
       uploadMutation.mutate(file);
     }
+  };
+
+  const processingMessage = () => {
+    if (!statusData) return 'Subiendo y preparando archivo...';
+    if (statusData.status === 'processing') return 'Realizando matching con proveedores críticos...';
+    if (statusData.status === 'processed') return 'Finalizando...';
+    return 'Procesando...';
   };
 
   return (
@@ -157,8 +192,20 @@ export default function Upload() {
             <Loader2 className="w-10 h-10 mx-auto text-primary animate-spin" />
             <div>
               <p className="font-medium">Procesando archivo...</p>
-              <p className="text-sm text-muted-foreground mt-1">Extrayendo datos, eliminando duplicados y realizando matching</p>
+              <p className="text-sm text-muted-foreground mt-1">{processingMessage()}</p>
             </div>
+            {statusData?.total_records > 0 && (
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="font-bold text-base">{statusData.total_records}</p>
+                  <p className="text-xs text-muted-foreground">Registros extraídos</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="font-bold text-base">{statusData.matched_suppliers ?? '—'}</p>
+                  <p className="text-xs text-muted-foreground">Proveedores matched</p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
