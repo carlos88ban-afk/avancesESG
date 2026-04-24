@@ -89,15 +89,20 @@ router.post('/:fileId/process', async (req, res) => {
     });
 
     // --- 3. Upsert proveedores via RPC (insert or update by ruc+provider_name) ---
-    for (const r of uniqueRecords) {
-      const { error } = await supabase.rpc('upsert_proveedor', {
-        p_ruc: r.ruc,
-        p_provider_name: r.provider_name,
-        p_unit: r.unit,
-        p_update_date: r.update_date,
-        p_upload_id: fileId,
-      });
-      if (error) throw error;
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
+      const batch = uniqueRecords.slice(i, i + BATCH_SIZE);
+      console.log(`Insertando lote ${Math.floor(i / BATCH_SIZE) + 1}...`);
+      for (const r of batch) {
+        const { error } = await supabase.rpc('upsert_proveedor', {
+          p_ruc: r.ruc,
+          p_provider_name: r.provider_name,
+          p_unit: r.unit,
+          p_update_date: r.update_date,
+          p_upload_id: fileId,
+        });
+        if (error) throw error;
+      }
     }
 
     // --- 5. Load critical suppliers and existing avances ---
