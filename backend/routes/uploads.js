@@ -79,38 +79,25 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
-    // --- 2. Deduplicate within the file by ruc+unit ---
+    // --- 2. Deduplicate within the file by ruc+provider_name ---
     const seen = new Set();
     const uniqueRecords = records.filter((r) => {
-      const key = `${r.ruc ?? ''}__${r.unit}`;
+      const key = `${normalizeText(r.ruc)}__${normalizeText(r.provider_name)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-    // --- 3. Deduplicate against existing proveedores by normalized name ---
-    const { data: existingProvs } = await supabase
-      .from('proveedores')
-      .select('provider_name');
-
-    const existingNames = new Set(
-      (existingProvs || []).map((p) => normalizeText(p.provider_name))
-    );
-
-    const newRecords = uniqueRecords.filter((r) => {
-      const norm = normalizeText(r.provider_name);
-      if (!norm) return true;
-      if (existingNames.has(norm)) return false;
-      existingNames.add(norm); // prevent within-batch name duplicates too
-      return true;
-    });
-
-    // Insert only truly new records into proveedores
-    const BATCH = 500;
-    for (let i = 0; i < newRecords.length; i += BATCH) {
-      const batch = newRecords.slice(i, i + BATCH).map((r) => ({ ...r, upload_id: fileId }));
-      const { error: insertErr } = await supabase.from('proveedores').insert(batch);
-      if (insertErr) throw insertErr;
+    // --- 3. Upsert proveedores via RPC (insert or update by ruc+provider_name) ---
+    for (const r of uniqueRecords) {
+      const { error } = await supabase.rpc('upsert_proveedor', {
+        p_ruc: r.ruc,
+        p_provider_name: r.provider_name,
+        p_unit: r.unit,
+        p_update_date: r.update_date,
+        p_upload_id: fileId,
+      });
+      if (error) throw error;
     }
 
     // --- 5. Load critical suppliers and existing avances ---
