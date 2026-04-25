@@ -156,15 +156,23 @@ export default function Suppliers() {
           open={showForm}
           onClose={() => setShowForm(false)}
           onSubmit={(data) => createMutation.mutate(data)}
+          existingSuppliers={suppliers}
+          onDuplicate={(supplier) => {
+            setShowForm(false);
+            setEditing(supplier);
+          }}
         />
       )}
 
       {editing && (
         <SupplierForm
+          key={editing.id}
           open={!!editing}
           onClose={() => setEditing(null)}
           onSubmit={(data) => updateMutation.mutate({ id: editing.id, data })}
           initialData={editing}
+          existingSuppliers={suppliers}
+          onDuplicate={(supplier) => setEditing(supplier)}
         />
       )}
 
