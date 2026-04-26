@@ -43,6 +43,23 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/suppliers/search?q=texto  — search proveedores_criticos base table
+router.get('/search', async (req, res) => {
+  try {
+    const q = req.query.q?.trim() || '';
+    if (q.length < 2) return res.json([]);
+    const { data, error } = await supabase
+      .from('proveedores_criticos')
+      .select('id, name, ruc')
+      .or(`name.ilike.%${q}%,ruc.ilike.%${q}%`)
+      .limit(5);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/suppliers/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -62,43 +79,53 @@ router.get('/:id', async (req, res) => {
 // POST /api/suppliers
 router.post('/', async (req, res) => {
   try {
-    const { name, ruc, unit, type, status } = req.body;
-    if (!name || !unit || !type) {
-      return res.status(400).json({ error: 'name, unit y type son requeridos' });
+    const { name, ruc, unit, type, status, proveedor_id } = req.body;
+    if (!proveedor_id && !name) {
+      return res.status(400).json({ error: 'Se requiere name o proveedor_id' });
+    }
+    if (!unit || !type) {
+      return res.status(400).json({ error: 'unit y type son requeridos' });
     }
 
-    // --- 1. Find or create the base proveedor ---
+    // --- 1. Resolve base proveedor ---
     let proveedorData = null;
 
-    // Try by RUC first (exact match)
-    if (ruc?.trim()) {
-      const { data } = await supabase
+    if (proveedor_id) {
+      // Caso A: frontend selected an existing provider
+      const { data, error: fetchErr } = await supabase
         .from('proveedores_criticos')
         .select('id, name, ruc')
-        .eq('ruc', ruc.trim())
-        .maybeSingle();
-      proveedorData = data;
-    }
-
-    // Try by name (case-insensitive exact) if not found by RUC
-    if (!proveedorData) {
-      const { data } = await supabase
-        .from('proveedores_criticos')
-        .select('id, name, ruc')
-        .ilike('name', name.trim())
-        .maybeSingle();
-      proveedorData = data;
-    }
-
-    // Create if not found
-    if (!proveedorData) {
-      const { data, error: createErr } = await supabase
-        .from('proveedores_criticos')
-        .insert({ name: name.trim(), ruc: ruc?.trim() || null, status: 'activo' })
-        .select('id, name, ruc')
+        .eq('id', proveedor_id)
         .single();
-      if (createErr) throw createErr;
+      if (fetchErr || !data) return res.status(404).json({ error: 'Proveedor no encontrado' });
       proveedorData = data;
+    } else {
+      // Caso B: find or create by RUC / name
+      if (ruc?.trim()) {
+        const { data } = await supabase
+          .from('proveedores_criticos')
+          .select('id, name, ruc')
+          .eq('ruc', ruc.trim())
+          .maybeSingle();
+        proveedorData = data;
+      }
+      if (!proveedorData) {
+        const { data } = await supabase
+          .from('proveedores_criticos')
+          .select('id, name, ruc')
+          .ilike('name', name.trim())
+          .maybeSingle();
+        proveedorData = data;
+      }
+      if (!proveedorData) {
+        const { data, error: createErr } = await supabase
+          .from('proveedores_criticos')
+          .insert({ name: name.trim(), ruc: ruc?.trim() || null, status: 'activo' })
+          .select('id, name, ruc')
+          .single();
+        if (createErr) throw createErr;
+        proveedorData = data;
+      }
     }
 
     // --- 2. Check for duplicate (proveedor_id, unit) ---

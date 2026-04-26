@@ -7,6 +7,9 @@ export const supplierService = {
   // Get active suppliers
   getActive: () => apiClient.get('/api/suppliers?status=activo'),
   
+  // Search proveedores_criticos base table by name or RUC (ILIKE)
+  search: (q) => apiClient.get(`/api/suppliers/search?q=${encodeURIComponent(q)}`),
+
   // Get single supplier
   getById: (id) => apiClient.get(`/api/suppliers/${id}`),
   
