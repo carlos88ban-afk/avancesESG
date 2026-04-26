@@ -88,21 +88,25 @@ router.post('/:fileId/process', async (req, res) => {
     });
 
     // --- 3. Bulk upsert proveedores (conflict on ruc+provider_name) ---
-    const BATCH_SIZE = 1000;
-    for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
-      const batch = uniqueRecords.slice(i, i + BATCH_SIZE).map((r) => ({
-        ruc: r.ruc,
-        provider_name: r.provider_name,
-        unit: r.unit,
-        update_date: r.update_date,
-        upload_id: fileId,
-      }));
-      console.log(`Insertando lote ${Math.floor(i / BATCH_SIZE) + 1}...`);
-      const { error } = await supabase
-        .from('proveedores')
-        .upsert(batch, { onConflict: 'ruc,provider_name', ignoreDuplicates: false });
-      if (error) throw error;
-    }
+const BATCH_SIZE = 200;
+
+for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
+  const batch = uniqueRecords.slice(i, i + BATCH_SIZE);
+
+  console.log(`Insertando lote ${Math.floor(i / BATCH_SIZE) + 1}...`);
+
+  for (const r of batch) {
+    const { error } = await supabase.rpc('upsert_proveedor', {
+      p_ruc: r.ruc,
+      p_provider_name: r.provider_name,
+      p_unit: r.unit,
+      p_update_date: r.update_date,
+      p_upload_id: fileId,
+    });
+
+    if (error) throw error;
+  }
+}
 
     // --- 4. Update upload record with results ---
     await supabase
