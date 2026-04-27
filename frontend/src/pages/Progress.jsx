@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, CheckCircle2, XCircle, Filter, RefreshCw, Info } from 'lucide-react';
 
@@ -92,8 +92,10 @@ export default function Progress() {
   const completedCount = filteredRows.filter(r => r.estado === 'completado').length;
   const pendingCount = filteredRows.filter(r => r.estado === 'pendiente').length;
   const total = filteredRows.length;
+  const Provider = /** @type {any} */ (TooltipProvider);
 
   return (
+    <Provider>
     <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
@@ -308,5 +310,6 @@ export default function Progress() {
           </div>
         </Card>
       </div>
+    </Provider>
   );
 }
