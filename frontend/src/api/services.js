@@ -40,6 +40,10 @@ export const completionService = {
   rematch: () => apiClient.post('/api/completions/rematch'),
 };
 
+export const progressService = {
+  getAll: () => apiClient.get('/api/progress'),
+};
+
 export const uploadService = {
   // Upload file
   uploadFile: (file) => {

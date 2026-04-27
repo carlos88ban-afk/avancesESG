@@ -5,6 +5,7 @@ const cors = require('cors');
 const suppliersRouter  = require('./routes/suppliers');
 const completionsRouter = require('./routes/completions');
 const uploadsRouter    = require('./routes/uploads');
+const progressRouter   = require('./routes/progress');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -31,6 +32,7 @@ app.use(express.json());
 app.use('/api/suppliers',   suppliersRouter);
 app.use('/api/completions', completionsRouter);
 app.use('/api/uploads',     uploadsRouter);
+app.use('/api/progress',    progressRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
