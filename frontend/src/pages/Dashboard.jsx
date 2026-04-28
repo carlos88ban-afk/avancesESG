@@ -15,9 +15,10 @@ export default function Dashboard() {
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  const resumen = dashboardData?.resumen;
-  const detallePorUnidad = /** @type {any[]} */ (dashboardData?.detalle_por_unidad ?? []);
-  const avancePorTipo = /** @type {any[]} */ (dashboardData?.avance_por_tipo ?? []);
+  const dashboardRows = /** @type {any[]} */ (Array.isArray(dashboardData) ? dashboardData : []);
+  const resumen = dashboardRows.find((x) => x.seccion === 'resumen')?.data;
+  const detallePorUnidad = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'detalle_por_unidad')?.data ?? []);
+  const avancePorTipo = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'avance_por_tipo')?.data ?? []);
 
   const metrics = !resumen ? null : {
     globalPct: resumen.porcentaje_avance_unicos ?? 0,
