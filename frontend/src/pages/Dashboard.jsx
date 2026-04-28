@@ -15,28 +15,38 @@ export default function Dashboard() {
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  const resumen = dashboardData?.resumen;
-  const detallePorUnidad = /** @type {any[]} */ (dashboardData?.detalle_por_unidad ?? []);
-  const avancePorTipo = /** @type {any[]} */ (dashboardData?.avance_por_tipo ?? []);
+  const dashboardRows = /** @type {any[]} */ (dashboardData ?? []);
+  const resumen = dashboardRows.find((x) => x.seccion === 'resumen')?.data;
+  const detallePorUnidad = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'detalle_por_unidad')?.data ?? []);
+  const avancePorTipo = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'avance_por_tipo')?.data ?? []);
 
-  const unitData = detallePorUnidad.map((item) => ({
-    unit: item.critico_para?.length > 18 ? item.critico_para.slice(0, 16) + '…' : item.critico_para,
-    fullUnit: item.critico_para,
-    completed: item.total_match,
-    total: item.total_match,
-    percentage: 100,
-    retailCompleted: item.retail_match,
-    noRetailCompleted: item.no_retail_match,
-  }));
+  const metrics = !resumen ? null : {
+    globalPct: resumen.porcentaje_avance_unicos ?? 0,
+    globalPctGeneral: resumen.porcentaje_avance_incluye_duplicados ?? 0,
+    totalSuppliers: resumen.z_total_proveedores_criticos_unicos ?? 0,
+    totalSuppliersGeneral: resumen.a_total_proveedores_criticos_incluyendo_duplicados ?? 0,
+    totalCompleted: resumen.x_total_proveedores_unicos_match ?? 0,
+    totalCompletedGeneral: resumen.y_total_proveedores_incluyendo_duplicados_match ?? 0,
+    pending: resumen.b_pendientes_unicos ?? 0,
+    pendingGeneral: resumen.c_pendientes_incluyendo_duplicados ?? 0,
+    unitData: detallePorUnidad.map((item) => ({
+      unit: item.critico_para?.length > 18 ? item.critico_para.slice(0, 16) + '…' : item.critico_para,
+      fullUnit: item.critico_para,
+      completed: item.total_match ?? 0,
+      total: item.total_match ?? 0,
+      percentage: 100,
+      retailCompleted: item.retail_match ?? 0,
+      noRetailCompleted: item.no_retail_match ?? 0,
+    })),
+    typeData: avancePorTipo.map((item) => ({
+      type: item.tipo,
+      completed: item.total_match ?? 0,
+      total: item.total_match ?? 0,
+      percentage: 100,
+    })),
+  };
 
-  const typeData = avancePorTipo.map((item) => ({
-    type: item.tipo,
-    completed: item.total_match,
-    total: item.total_match,
-    percentage: 100,
-  }));
-
-  const isEmpty = !resumen || (Number(resumen.z_total_proveedores_criticos_unicos) === 0 && unitData.length === 0);
+  const isEmpty = !metrics;
 
   if (isLoading) {
     return (
@@ -72,37 +82,37 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Avance Global"
-              value={`${resumen.porcentaje_avance_unicos}%`}
-              subtitle={`${resumen.porcentaje_avance_incluye_duplicados}% avance general`}
+              value={`${metrics.globalPct}%`}
+              subtitle={`${metrics.globalPctGeneral}% avance general`}
               icon={TrendingUp}
               accentClass="bg-primary"
             />
             <KPICard
               title="Proveedores Críticos"
-              value={resumen.z_total_proveedores_criticos_unicos}
-              subtitle={`${resumen.a_total_proveedores_criticos_incluyendo_duplicados} total general`}
+              value={metrics.totalSuppliers}
+              subtitle={`${metrics.totalSuppliersGeneral} total general`}
               icon={Target}
               accentClass="bg-accent"
             />
             <KPICard
               title="Completados"
-              value={resumen.x_total_proveedores_unicos_match}
-              subtitle={`${resumen.y_total_proveedores_incluyendo_duplicados_match} total general`}
+              value={metrics.totalCompleted}
+              subtitle={`${metrics.totalCompletedGeneral} total general`}
               icon={CheckCircle2}
               accentClass=""
             />
             <KPICard
               title="Pendientes"
-              value={resumen.b_pendientes_unicos}
-              subtitle={`${resumen.c_pendientes_incluyendo_duplicados} total general`}
+              value={metrics.pending}
+              subtitle={`${metrics.pendingGeneral} total general`}
               icon={Clock}
               accentClass=""
             />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <UnitChart data={unitData} />
-            <TypeChart data={typeData} />
+            <UnitChart data={metrics.unitData} />
+            <TypeChart data={metrics.typeData} />
           </div>
 
           <Card className="border-0 shadow-sm">
@@ -110,7 +120,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 pt-2">
-              {unitData.map((item) => (
+              {metrics.unitData.map((item) => (
                 <ProgressBar
                   key={item.fullUnit}
                   label={item.fullUnit}
