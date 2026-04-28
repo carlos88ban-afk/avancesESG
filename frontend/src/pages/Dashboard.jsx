@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supplierService, completionService, dashboardService } from '@/api/services';
+import { dashboardService } from '@/api/services';
 import { Target, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
 import ProgressBar from '../components/dashboard/ProgressBar';
@@ -10,91 +10,16 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Dashboard() {
-  const { data: suppliers = [], isLoading: loadingSuppliers } = useQuery({
-    queryKey: ['critical-suppliers'],
-    queryFn: () => supplierService.getActive(),
-  });
-
-  const { data: completions = [], isLoading: loadingCompletions } = useQuery({
-    queryKey: ['completions'],
-    queryFn: () => completionService.getAll(),
-  });
-
-  const { data: dashboardMetrics } = useQuery({
-    queryKey: ['dashboard-metrics'],
+  const { data: dashboardData, isLoading } = useQuery({
+    queryKey: ['dashboard'],
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  const metrics = useMemo(() => {
-    if (!suppliers.length) return null;
+  const metrics = dashboardData?.metrics;
+  const unitData = dashboardData?.unitData ?? [];
+  const typeData = dashboardData?.typeData ?? [];
 
-    // Total expected = sum of all units across all suppliers
-    let totalExpected = 0;
-    const unitMap = {};
-    const typeMap = {};
-
-    suppliers.forEach((s) => {
-      const units = s.units || [];
-      totalExpected += units.length;
-
-      units.forEach((u) => {
-        if (!unitMap[u]) unitMap[u] = { total: 0, completed: 0 };
-        unitMap[u].total++;
-      });
-
-      const type = s.type || 'ambos';
-      if (!typeMap[type]) typeMap[type] = { total: 0, completed: 0 };
-      typeMap[type].total += units.length;
-    });
-
-    // Mark completions
-    const completionSet = new Set(completions.map((c) => `${c.critical_supplier_id}__${c.unit}`));
-    let totalCompleted = 0;
-
-    suppliers.forEach((s) => {
-      const units = s.units || [];
-      units.forEach((u) => {
-        const key = `${s.id}__${u}`;
-        if (completionSet.has(key)) {
-          totalCompleted++;
-          if (unitMap[u]) unitMap[u].completed++;
-          const type = s.type || 'ambos';
-          if (typeMap[type]) typeMap[type].completed++;
-        }
-      });
-    });
-
-    const globalPct = totalExpected > 0 ? Math.round((totalCompleted / totalExpected) * 100) : 0;
-
-    const unitData = Object.entries(unitMap)
-      .map(([unit, d]) => ({
-        unit: unit.length > 18 ? unit.slice(0, 16) + '…' : unit,
-        fullUnit: unit,
-        completed: d.completed,
-        total: d.total,
-        percentage: d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0,
-      }))
-      .sort((a, b) => b.percentage - a.percentage);
-
-    const typeData = Object.entries(typeMap).map(([type, d]) => ({
-      type,
-      completed: d.completed,
-      total: d.total,
-      percentage: d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0,
-    }));
-
-    return {
-      totalSuppliers: suppliers.length,
-      totalExpected,
-      totalCompleted,
-      pending: totalExpected - totalCompleted,
-      globalPct,
-      unitData,
-      typeData,
-    };
-  }, [suppliers, completions]);
-
-  const isLoading = loadingSuppliers || loadingCompletions;
+  const isEmpty = !metrics || (Number(metrics.z_unicos_total) === 0 && unitData.length === 0);
 
   if (isLoading) {
     return (
@@ -119,7 +44,7 @@ export default function Dashboard() {
         <p className="text-sm text-muted-foreground mt-1">Monitoreo del avance de encuestas ESG</p>
       </div>
 
-      {!metrics || metrics.totalSuppliers === 0 ? (
+      {isEmpty ? (
         <Card className="border-0 shadow-sm p-12 text-center">
           <Target className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
           <h2 className="text-lg font-semibold mb-1">Sin datos aún</h2>
@@ -130,39 +55,37 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Avance Global"
-              value={dashboardMetrics ? `${dashboardMetrics.pct_unicos}%` : `${metrics.globalPct}%`}
-              subtitle={
-                dashboardMetrics
-                  ? `${dashboardMetrics.pct_total}% avance general · ${dashboardMetrics.x_unicos_match} únicos / ${dashboardMetrics.y_total_match} total`
-                  : `${metrics.totalCompleted} de ${metrics.totalExpected} completados`
-              }
+              value={`${metrics.pct_unicos}%`}
+              subtitle={`${metrics.pct_total}% avance general · ${metrics.x_unicos_match} únicos / ${metrics.y_total_match} total`}
               icon={TrendingUp}
               accentClass="bg-primary"
             />
             <KPICard
               title="Proveedores Críticos"
-              value={metrics.totalSuppliers}
-              subtitle="Activos en el sistema"
+              value={metrics.z_unicos_total}
+              subtitle={`${metrics.a_total} relaciones críticas en total`}
               icon={Target}
               accentClass="bg-accent"
             />
             <KPICard
               title="Completados"
-              value={metrics.totalCompleted}
-              subtitle="Encuestas confirmadas"
+              value={metrics.x_unicos_match}
+              subtitle={`${metrics.y_total_match} incluyendo duplicados`}
               icon={CheckCircle2}
+              accentClass=""
             />
             <KPICard
               title="Pendientes"
-              value={metrics.pending}
-              subtitle="Encuestas faltantes"
+              value={metrics.b_pendientes_unicos}
+              subtitle={`${metrics.c_pendientes_total} incluyendo duplicados`}
               icon={Clock}
+              accentClass=""
             />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <UnitChart data={metrics.unitData} />
-            <TypeChart data={metrics.typeData} />
+            <UnitChart data={unitData} />
+            <TypeChart data={typeData} />
           </div>
 
           <Card className="border-0 shadow-sm">
@@ -170,12 +93,13 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 pt-2">
-              {metrics.unitData.map((item) => (
+              {unitData.map((item) => (
                 <ProgressBar
                   key={item.fullUnit}
                   label={item.fullUnit}
                   completed={item.completed}
                   total={item.total}
+                  className=""
                 />
               ))}
             </CardContent>
