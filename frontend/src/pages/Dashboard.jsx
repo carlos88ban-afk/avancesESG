@@ -33,16 +33,16 @@ export default function Dashboard() {
       unit: item.critico_para?.length > 18 ? item.critico_para.slice(0, 16) + '…' : item.critico_para,
       fullUnit: item.critico_para,
       completed: item.total_match ?? 0,
-      total: item.total_match ?? 0,
-      percentage: 100,
+      total: item.total_criticos ?? 0,
+      percentage: item.porcentaje_avance ?? 0,
       retailCompleted: item.retail_match ?? 0,
       noRetailCompleted: item.no_retail_match ?? 0,
     })),
     typeData: avancePorTipo.map((item) => ({
       type: item.tipo,
       completed: item.total_match ?? 0,
-      total: item.total_match ?? 0,
-      percentage: 100,
+      total: item.total_criticos ?? 0,
+      percentage: item.porcentaje_avance ?? 0,
     })),
   };
 
