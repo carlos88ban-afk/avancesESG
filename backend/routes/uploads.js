@@ -6,7 +6,6 @@ const fs = require('fs');
 
 const supabase = require('../db/supabase');
 const { parseExcelFile } = require('../lib/excelParser');
-const { normalizeText } = require('../lib/constants');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -78,35 +77,27 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
-    // --- 2. Deduplicate within the file by ruc+provider_name ---
-    const seen = new Set();
-    const uniqueRecords = records.filter((r) => {
-      const key = `${normalizeText(r.ruc)}__${normalizeText(r.provider_name)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    // --- 2. Bulk upsert proveedores in parallel batches (dedup via DB conflict) ---
+    const BATCH_SIZE = 200;
 
-    // --- 3. Bulk upsert proveedores (conflict on ruc+provider_name) ---
-const BATCH_SIZE = 200;
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
 
-for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
-  const batch = uniqueRecords.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map((r) =>
+          supabase.rpc('upsert_proveedor', {
+            p_ruc: r.ruc,
+            p_provider_name: r.provider_name,
+            p_unit: r.unit,
+            p_update_date: r.update_date,
+            p_upload_id: fileId,
+          })
+        )
+      );
 
-  console.log(`Insertando lote ${Math.floor(i / BATCH_SIZE) + 1}...`);
-
-  for (const r of batch) {
-    const { error } = await supabase.rpc('upsert_proveedor', {
-      p_ruc: r.ruc,
-      p_provider_name: r.provider_name,
-      p_unit: r.unit,
-      p_update_date: r.update_date,
-      p_upload_id: fileId,
-    });
-
-    if (error) throw error;
-  }
-}
+      const batchError = results.find((res) => res.error)?.error;
+      if (batchError) throw batchError;
+    }
 
     // --- 4. Update upload record with results ---
     await supabase
@@ -114,7 +105,7 @@ for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
       .update({
         status: 'processed',
         total_sheets: sheetCount,
-        total_records: uniqueRecords.length,
+        total_records: records.length,
         new_completions: 0,
         matched_suppliers: 0,
         processed_at: new Date().toISOString(),
@@ -126,7 +117,7 @@ for (let i = 0; i < uniqueRecords.length; i += BATCH_SIZE) {
 
     res.json({
       totalSheets: sheetCount,
-      totalRecords: uniqueRecords.length,
+      totalRecords: records.length,
       newCompletions: 0,
       matchedSuppliers: 0,
     });
