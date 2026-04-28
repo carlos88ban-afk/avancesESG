@@ -6,6 +6,7 @@ const suppliersRouter  = require('./routes/suppliers');
 const completionsRouter = require('./routes/completions');
 const uploadsRouter    = require('./routes/uploads');
 const progressRouter   = require('./routes/progress');
+const dashboardRouter  = require('./routes/dashboard');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -33,6 +34,7 @@ app.use('/api/suppliers',   suppliersRouter);
 app.use('/api/completions', completionsRouter);
 app.use('/api/uploads',     uploadsRouter);
 app.use('/api/progress',    progressRouter);
+app.use('/api/dashboard',   dashboardRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

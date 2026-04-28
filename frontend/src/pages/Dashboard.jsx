@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supplierService, completionService } from '@/api/services';
+import { supplierService, completionService, dashboardService } from '@/api/services';
 import { Target, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
 import ProgressBar from '../components/dashboard/ProgressBar';
@@ -18,6 +18,11 @@ export default function Dashboard() {
   const { data: completions = [], isLoading: loadingCompletions } = useQuery({
     queryKey: ['completions'],
     queryFn: () => completionService.getAll(),
+  });
+
+  const { data: dashboardMetrics } = useQuery({
+    queryKey: ['dashboard-metrics'],
+    queryFn: () => dashboardService.getMetrics(),
   });
 
   const metrics = useMemo(() => {
@@ -125,8 +130,12 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Avance Global"
-              value={`${metrics.globalPct}%`}
-              subtitle={`${metrics.totalCompleted} de ${metrics.totalExpected} completados`}
+              value={dashboardMetrics ? `${dashboardMetrics.pct_unicos}%` : `${metrics.globalPct}%`}
+              subtitle={
+                dashboardMetrics
+                  ? `${dashboardMetrics.pct_total}% avance general · ${dashboardMetrics.x_unicos_match} únicos / ${dashboardMetrics.y_total_match} total`
+                  : `${metrics.totalCompleted} de ${metrics.totalExpected} completados`
+              }
               icon={TrendingUp}
               accentClass="bg-primary"
             />

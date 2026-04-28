@@ -44,6 +44,10 @@ export const progressService = {
   getAll: () => apiClient.get('/api/progress'),
 };
 
+export const dashboardService = {
+  getMetrics: () => apiClient.get('/api/dashboard/metrics'),
+};
+
 export const uploadService = {
   // Upload file
   uploadFile: (file) => {
