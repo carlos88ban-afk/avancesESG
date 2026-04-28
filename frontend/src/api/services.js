@@ -48,6 +48,10 @@ export const dashboardService = {
   getMetrics: () => apiClient.get('/api/dashboard/metrics'),
 };
 
+export const evaluacionService = {
+  getAll: () => apiClient.get('/api/evaluacion'),
+};
+
 export const uploadService = {
   // Upload file
   uploadFile: (file) => {

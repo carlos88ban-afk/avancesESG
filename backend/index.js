@@ -2,11 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
-const suppliersRouter  = require('./routes/suppliers');
+const suppliersRouter   = require('./routes/suppliers');
 const completionsRouter = require('./routes/completions');
-const uploadsRouter    = require('./routes/uploads');
-const progressRouter   = require('./routes/progress');
-const dashboardRouter  = require('./routes/dashboard');
+const uploadsRouter     = require('./routes/uploads');
+const progressRouter    = require('./routes/progress');
+const dashboardRouter   = require('./routes/dashboard');
+const evaluacionRouter  = require('./routes/evaluacion');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -35,6 +36,7 @@ app.use('/api/completions', completionsRouter);
 app.use('/api/uploads',     uploadsRouter);
 app.use('/api/progress',    progressRouter);
 app.use('/api/dashboard',   dashboardRouter);
+app.use('/api/evaluacion',  evaluacionRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

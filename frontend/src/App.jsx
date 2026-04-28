@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Suppliers from './pages/Suppliers';
 import Upload from './pages/Upload';
 import Progress from './pages/Progress';
+import EvaluacionProveedores from './pages/EvaluacionProveedores';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings } = useAuth();
@@ -31,6 +32,7 @@ const AuthenticatedApp = () => {
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/progress" element={<Progress />} />
+        <Route path="/evaluacion" element={<EvaluacionProveedores />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

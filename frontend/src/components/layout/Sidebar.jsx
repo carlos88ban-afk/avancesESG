@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Upload, Table2, Leaf } from 'lucide-react';
+import { LayoutDashboard, Users, Upload, Table2, Leaf, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { label: 'Proveedores Críticos', path: '/suppliers', icon: Users },
   { label: 'Cargar Archivo', path: '/upload', icon: Upload },
   { label: 'Avances', path: '/progress', icon: Table2 },
+  { label: 'Evaluaciones', path: '/evaluacion', icon: ClipboardCheck },
 ];
 
 export default function Sidebar() {
