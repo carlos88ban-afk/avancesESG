@@ -15,7 +15,18 @@ export default function Dashboard() {
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  const dashboardRows = /** @type {any[]} */ (Array.isArray(dashboardData) ? dashboardData : []);
+  console.log('dashboardData raw', dashboardData);
+
+  const rawDashboardData =
+    Array.isArray(dashboardData)
+      ? dashboardData
+      : Array.isArray(dashboardData?.data)
+        ? dashboardData.data
+        : Array.isArray(dashboardData?.data?.data)
+          ? dashboardData.data.data
+          : [];
+
+  const dashboardRows = /** @type {any[]} */ (rawDashboardData);
   const resumen = dashboardRows.find((x) => x.seccion === 'resumen')?.data;
   const detallePorUnidad = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'detalle_por_unidad')?.data ?? []);
   const avancePorTipo = /** @type {any[]} */ (dashboardRows.find((x) => x.seccion === 'avance_por_tipo')?.data ?? []);
