@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardService } from '@/api/services';
-import { Target, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
+import { Target, CheckCircle2, Clock, TrendingUp, ChevronDown } from 'lucide-react';
 import KPICard from '../components/dashboard/KPICard';
 import ProgressBar from '../components/dashboard/ProgressBar';
 import UnitChart from '../components/dashboard/UnitChart';
@@ -47,7 +47,11 @@ export default function Dashboard() {
       total: item.total_criticos ?? 0,
       percentage: item.porcentaje_avance ?? 0,
       retailCompleted: item.retail_match ?? 0,
+      retailTotal: item.retail_total ?? 0,
+      retailPercentage: item.retail_porcentaje_avance ?? 0,
       noRetailCompleted: item.no_retail_match ?? 0,
+      noRetailTotal: item.no_retail_total ?? 0,
+      noRetailPercentage: item.no_retail_porcentaje_avance ?? 0,
     })),
     typeData: avancePorTipo.map((item) => ({
       type: item.tipo,
@@ -56,6 +60,8 @@ export default function Dashboard() {
       percentage: item.porcentaje_avance ?? 0,
     })),
   };
+
+  const [expandedUnit, setExpandedUnit] = useState(null);
 
   const isEmpty = !metrics;
 
@@ -130,15 +136,44 @@ export default function Dashboard() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 pt-2">
+            <CardContent className="space-y-3 pt-2">
               {metrics.unitData.map((item) => (
-                <ProgressBar
-                  key={item.fullUnit}
-                  label={item.fullUnit}
-                  completed={item.completed}
-                  total={item.total}
-                  className=""
-                />
+                <div key={item.fullUnit}>
+                  <button
+                    className="w-full text-left focus-visible:outline-none"
+                    onClick={() => setExpandedUnit(expandedUnit === item.fullUnit ? null : item.fullUnit)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <ProgressBar
+                          label={item.fullUnit}
+                          completed={item.completed}
+                          total={item.total}
+                          className=""
+                        />
+                      </div>
+                      <ChevronDown
+                        className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${expandedUnit === item.fullUnit ? 'rotate-180' : ''}`}
+                      />
+                    </div>
+                  </button>
+                  {expandedUnit === item.fullUnit && (
+                    <div className="mt-3 ml-1 pl-3 border-l-2 border-muted space-y-3">
+                      <ProgressBar
+                        label="Retail"
+                        completed={item.retailCompleted}
+                        total={item.retailTotal}
+                        className=""
+                      />
+                      <ProgressBar
+                        label="No Retail"
+                        completed={item.noRetailCompleted}
+                        total={item.noRetailTotal}
+                        className=""
+                      />
+                    </div>
+                  )}
+                </div>
               ))}
             </CardContent>
           </Card>
