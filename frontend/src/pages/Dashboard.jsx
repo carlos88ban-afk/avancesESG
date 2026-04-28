@@ -15,11 +15,28 @@ export default function Dashboard() {
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  const metrics = dashboardData?.metrics;
-  const unitData = dashboardData?.unitData ?? [];
-  const typeData = dashboardData?.typeData ?? [];
+  const resumen = dashboardData?.resumen;
+  const detallePorUnidad = /** @type {any[]} */ (dashboardData?.detalle_por_unidad ?? []);
+  const avancePorTipo = /** @type {any[]} */ (dashboardData?.avance_por_tipo ?? []);
 
-  const isEmpty = !metrics || (Number(metrics.z_unicos_total) === 0 && unitData.length === 0);
+  const unitData = detallePorUnidad.map((item) => ({
+    unit: item.critico_para?.length > 18 ? item.critico_para.slice(0, 16) + '…' : item.critico_para,
+    fullUnit: item.critico_para,
+    completed: item.total_match,
+    total: item.total_match,
+    percentage: 100,
+    retailCompleted: item.retail_match,
+    noRetailCompleted: item.no_retail_match,
+  }));
+
+  const typeData = avancePorTipo.map((item) => ({
+    type: item.tipo,
+    completed: item.total_match,
+    total: item.total_match,
+    percentage: 100,
+  }));
+
+  const isEmpty = !resumen || (Number(resumen.z_total_proveedores_criticos_unicos) === 0 && unitData.length === 0);
 
   if (isLoading) {
     return (
@@ -55,29 +72,29 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Avance Global"
-              value={`${metrics.pct_unicos}%`}
-              subtitle={`${metrics.pct_total}% avance general · ${metrics.x_unicos_match} únicos / ${metrics.y_total_match} total`}
+              value={`${resumen.porcentaje_avance_unicos}%`}
+              subtitle={`${resumen.porcentaje_avance_incluye_duplicados}% avance general`}
               icon={TrendingUp}
               accentClass="bg-primary"
             />
             <KPICard
               title="Proveedores Críticos"
-              value={metrics.z_unicos_total}
-              subtitle={`${metrics.a_total} relaciones críticas en total`}
+              value={resumen.z_total_proveedores_criticos_unicos}
+              subtitle={`${resumen.a_total_proveedores_criticos_incluyendo_duplicados} total general`}
               icon={Target}
               accentClass="bg-accent"
             />
             <KPICard
               title="Completados"
-              value={metrics.x_unicos_match}
-              subtitle={`${metrics.y_total_match} incluyendo duplicados`}
+              value={resumen.x_total_proveedores_unicos_match}
+              subtitle={`${resumen.y_total_proveedores_incluyendo_duplicados_match} total general`}
               icon={CheckCircle2}
               accentClass=""
             />
             <KPICard
               title="Pendientes"
-              value={metrics.b_pendientes_unicos}
-              subtitle={`${metrics.c_pendientes_total} incluyendo duplicados`}
+              value={resumen.b_pendientes_unicos}
+              subtitle={`${resumen.c_pendientes_incluyendo_duplicados} total general`}
               icon={Clock}
               accentClass=""
             />
