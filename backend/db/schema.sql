@@ -30,13 +30,17 @@ CREATE TABLE IF NOT EXISTS uploads (
 
 -- Raw supplier rows extracted from uploaded xlsx files
 CREATE TABLE IF NOT EXISTS proveedores (
-  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  ruc           TEXT,
-  provider_name TEXT,
-  unit          TEXT,
-  update_date   DATE,
-  upload_id     UUID        REFERENCES uploads(id) ON DELETE CASCADE,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  ruc                 TEXT,
+  provider_name       TEXT,
+  provider_name_clean TEXT GENERATED ALWAYS AS (
+    TRIM(REGEXP_REPLACE(REGEXP_REPLACE(UPPER(COALESCE(provider_name, '')), '[^A-Z0-9 ]', '', 'g'), ' +', ' ', 'g'))
+  ) STORED,
+  unit                TEXT,
+  update_date         DATE,
+  upload_id           UUID        REFERENCES uploads(id) ON DELETE CASCADE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT proveedores_ruc_name_clean_unique UNIQUE (ruc, provider_name_clean)
 );
 
 -- Completion records: which critical supplier completed for which unit
