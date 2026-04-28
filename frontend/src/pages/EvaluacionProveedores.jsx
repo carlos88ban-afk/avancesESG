@@ -39,7 +39,7 @@ export default function EvaluacionProveedores() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['evaluacion-proveedores'],
-    queryFn: () => evaluacionService.getAll().then(r => r.data),
+    queryFn: () => evaluacionService.getAll(),
     refetchOnWindowFocus: true,
   });
 
