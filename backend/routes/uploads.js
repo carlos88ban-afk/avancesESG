@@ -6,6 +6,16 @@ const fs = require('fs');
 
 const supabase = require('../db/supabase');
 const { parseExcelFile } = require('../lib/excelParser');
+const { normalizeText } = require('../lib/constants');
+
+function dedupeKey(r) {
+  return [
+    r.ruc ?? '',
+    normalizeText(r.provider_name),
+    r.unit ?? '',
+    r.update_date ?? '',
+  ].join('__');
+}
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -77,29 +87,75 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
-    // --- 2. Bulk upsert proveedores in parallel batches (dedup via DB conflict) ---
-    const BATCH_SIZE = 200;
+    // --- 2. Dedup within the file itself ---
+    const seenKeys = new Set();
+    const uniqueRecords = [];
+    const duplicatesPreview = [];
 
-    for (let i = 0; i < records.length; i += BATCH_SIZE) {
-      const batch = records.slice(i, i + BATCH_SIZE);
-
-      const results = await Promise.all(
-        batch.map((r) =>
-          supabase.rpc('upsert_proveedor', {
-            p_ruc: r.ruc,
-            p_provider_name: r.provider_name,
-            p_unit: r.unit,
-            p_update_date: r.update_date,
-            p_upload_id: fileId,
-          })
-        )
-      );
-
-      const batchError = results.find((res) => res.error)?.error;
-      if (batchError) throw batchError;
+    for (const r of records) {
+      const key = dedupeKey(r);
+      if (seenKeys.has(key)) {
+        duplicatesPreview.push({
+          reason: 'duplicate_in_file',
+          ruc: r.ruc,
+          provider_name: r.provider_name,
+          unit: r.unit,
+          update_date: r.update_date,
+          duplicateKey: key,
+        });
+      } else {
+        seenKeys.add(key);
+        uniqueRecords.push(r);
+      }
     }
 
-    // --- 4. Update upload record with results ---
+    // --- 3. Fetch existing proveedores and build a key set ---
+    const { data: existing, error: existingErr } = await supabase
+      .from('proveedores')
+      .select('id, ruc, provider_name, unit, update_date');
+
+    if (existingErr) throw existingErr;
+
+    const existingKeys = new Set(
+      (existing ?? []).map((e) => dedupeKey(e))
+    );
+
+    // --- 4. Split unique records into new vs already in DB ---
+    const newRecords = [];
+
+    for (const r of uniqueRecords) {
+      const key = dedupeKey(r);
+      if (existingKeys.has(key)) {
+        duplicatesPreview.push({
+          reason: 'already_exists_in_db',
+          ruc: r.ruc,
+          provider_name: r.provider_name,
+          unit: r.unit,
+          update_date: r.update_date,
+          duplicateKey: key,
+        });
+      } else {
+        newRecords.push(r);
+      }
+    }
+
+    // --- 5. Batch insert new proveedores ---
+    const BATCH_SIZE = 200;
+
+    for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
+      const batch = newRecords.slice(i, i + BATCH_SIZE).map((r) => ({
+        ruc: r.ruc,
+        provider_name: r.provider_name,
+        unit: r.unit,
+        update_date: r.update_date,
+        upload_id: fileId,
+      }));
+
+      const { error: insertErr } = await supabase.from('proveedores').insert(batch);
+      if (insertErr) throw insertErr;
+    }
+
+    // --- 6. Update upload record ---
     await supabase
       .from('uploads')
       .update({
@@ -117,9 +173,11 @@ router.post('/:fileId/process', async (req, res) => {
 
     res.json({
       totalSheets: sheetCount,
-      totalRecords: records.length,
-      newCompletions: 0,
-      matchedSuppliers: 0,
+      totalRecordsOriginal: records.length,
+      uniqueRecords: uniqueRecords.length,
+      insertedProviders: newRecords.length,
+      skippedDuplicates: duplicatesPreview.length,
+      duplicatesPreview: duplicatesPreview.slice(0, 200),
     });
   } catch (err) {
     await supabase
