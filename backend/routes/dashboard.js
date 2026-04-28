@@ -5,31 +5,27 @@ const supabase = require('../db/supabase');
 // GET /api/dashboard/metrics
 router.get('/metrics', async (_req, res) => {
   try {
-    const { data, error } = await supabase.rpc('get_progress_detailed');
-    if (error) throw error;
+    const [metricsResult, detailResult] = await Promise.all([
+      supabase.rpc('get_dashboard_metrics'),
+      supabase.rpc('get_progress_detailed'),
+    ]);
 
-    const rows = data || [];
+    if (metricsResult.error) throw metricsResult.error;
+    if (detailResult.error) throw detailResult.error;
 
-    const completed = rows.filter((r) => r.estado === 'completado');
-
-    const uniqueRucs = new Set(rows.map((r) => r.ruc));
-    const uniqueCompletedRucs = new Set(completed.map((r) => r.ruc));
-
-    const z = uniqueRucs.size;
-    const x = uniqueCompletedRucs.size;
-    const a = rows.length;
-    const y = completed.length;
-
+    const m = metricsResult.data?.[0] ?? {};
     const resumenData = {
-      x_total_proveedores_unicos_match: x,
-      y_total_proveedores_incluyendo_duplicados_match: y,
-      z_total_proveedores_criticos_unicos: z,
-      a_total_proveedores_criticos_incluyendo_duplicados: a,
-      b_pendientes_unicos: z - x,
-      c_pendientes_incluyendo_duplicados: a - y,
-      porcentaje_avance_unicos: z > 0 ? Math.round((x / z) * 1000) / 10 : 0,
-      porcentaje_avance_incluye_duplicados: a > 0 ? Math.round((y / a) * 1000) / 10 : 0,
+      x_total_proveedores_unicos_match:              m.x_unicos_match       ?? 0,
+      y_total_proveedores_incluyendo_duplicados_match: m.y_total_match       ?? 0,
+      z_total_proveedores_criticos_unicos:            m.z_unicos_total       ?? 0,
+      a_total_proveedores_criticos_incluyendo_duplicados: m.a_total          ?? 0,
+      b_pendientes_unicos:                            m.b_pendientes_unicos  ?? 0,
+      c_pendientes_incluyendo_duplicados:             m.c_pendientes_total   ?? 0,
+      porcentaje_avance_unicos:                       Number(m.pct_unicos    ?? 0),
+      porcentaje_avance_incluye_duplicados:           Number(m.pct_total     ?? 0),
     };
+
+    const completed = (detailResult.data || []).filter((r) => r.estado === 'completado');
 
     const unitMap = {};
     for (const row of completed) {
@@ -49,14 +45,9 @@ router.get('/metrics', async (_req, res) => {
     }
     const avancePorTipo = Object.values(tipoMap);
 
-    const totalPorUnidad = detallePorUnidad.map((u) => ({
-      critico_para: u.critico_para,
-      total_match: u.total_match,
-    }));
-
     res.json([
       { seccion: 'resumen', data: resumenData },
-      { seccion: 'total_por_unidad', data: totalPorUnidad },
+      { seccion: 'total_por_unidad', data: detallePorUnidad.map((u) => ({ critico_para: u.critico_para, total_match: u.total_match })) },
       { seccion: 'avance_por_tipo', data: avancePorTipo },
       { seccion: 'detalle_por_unidad', data: detallePorUnidad },
     ]);
