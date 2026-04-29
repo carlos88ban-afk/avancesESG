@@ -87,6 +87,18 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
+    console.log('UPLOAD DEBUG sheetCount:', sheetCount);
+    console.log('UPLOAD DEBUG records.length:', records.length);
+    console.log('UPLOAD DEBUG first 5 records:', records.slice(0, 5));
+    console.log('UPLOAD DEBUG last 5 records:', records.slice(-5));
+    console.log(
+      'UPLOAD DEBUG first 10 keys:',
+      records.slice(0, 10).map((r) => ({
+        r,
+        key: dedupeKey(r),
+      }))
+    );
+
     // --- 2. Dedup within the file itself ---
     const seenKeys = new Set();
     const uniqueRecords = [];
@@ -109,6 +121,10 @@ router.post('/:fileId/process', async (req, res) => {
       }
     }
 
+    console.log('UPLOAD DEBUG uniqueRecords.length:', uniqueRecords.length);
+    console.log('UPLOAD DEBUG duplicatesPreview.length after file dedupe:', duplicatesPreview.length);
+    console.log('UPLOAD DEBUG first 10 duplicate previews:', duplicatesPreview.slice(0, 10));
+
     // --- 3. Fetch existing proveedores and build a key set ---
     const { data: existing, error: existingErr } = await supabase
       .from('proveedores')
@@ -119,6 +135,8 @@ router.post('/:fileId/process', async (req, res) => {
     const existingKeys = new Set(
       (existing ?? []).map((e) => dedupeKey(e))
     );
+
+    console.log('UPLOAD DEBUG existingKeys.size:', existingKeys.size);
 
     // --- 4. Split unique records into new vs already in DB ---
     const newRecords = [];
@@ -138,6 +156,9 @@ router.post('/:fileId/process', async (req, res) => {
         newRecords.push(r);
       }
     }
+
+    console.log('UPLOAD DEBUG newRecords.length:', newRecords.length);
+    console.log('UPLOAD DEBUG first 5 newRecords:', newRecords.slice(0, 5));
 
     // --- 5. Batch insert new proveedores ---
     const BATCH_SIZE = 200;
