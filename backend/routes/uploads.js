@@ -17,6 +17,30 @@ function dedupeKey(r) {
   ].join('__');
 }
 
+async function fetchAllExistingProviders() {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('proveedores')
+      .select('ruc, provider_name, unit, update_date')
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows = allRows.concat(data);
+
+    if (data.length < pageSize) break;
+
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -87,84 +111,46 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 1. Parse Excel ---
     const { records, sheetCount } = parseExcelFile(filePath);
 
-    console.log('UPLOAD DEBUG sheetCount:', sheetCount);
-    console.log('UPLOAD DEBUG records.length:', records.length);
-    console.log('UPLOAD DEBUG first 5 records:', records.slice(0, 5));
-    console.log('UPLOAD DEBUG last 5 records:', records.slice(-5));
-    console.log(
-      'UPLOAD DEBUG first 10 keys:',
-      records.slice(0, 10).map((r) => ({
-        r,
-        key: dedupeKey(r),
-      }))
-    );
-
     // --- 2. Dedup within the file itself ---
     const seenKeys = new Set();
     const uniqueRecords = [];
-    const duplicatesPreview = [];
+    let duplicatesInFile = 0;
 
     for (const r of records) {
       const key = dedupeKey(r);
       if (seenKeys.has(key)) {
-        duplicatesPreview.push({
-          reason: 'duplicate_in_file',
-          ruc: r.ruc,
-          provider_name: r.provider_name,
-          unit: r.unit,
-          update_date: r.update_date,
-          duplicateKey: key,
-        });
+        duplicatesInFile += 1;
       } else {
         seenKeys.add(key);
         uniqueRecords.push(r);
       }
     }
 
-    console.log('UPLOAD DEBUG uniqueRecords.length:', uniqueRecords.length);
-    console.log('UPLOAD DEBUG duplicatesPreview.length after file dedupe:', duplicatesPreview.length);
-    console.log('UPLOAD DEBUG first 10 duplicate previews:', duplicatesPreview.slice(0, 10));
-
-    // --- 3. Fetch existing proveedores and build a key set ---
-    const { data: existing, error: existingErr } = await supabase
-      .from('proveedores')
-      .select('id, ruc, provider_name, unit, update_date');
-
-    if (existingErr) throw existingErr;
-
-    const existingKeys = new Set(
-      (existing ?? []).map((e) => dedupeKey(e))
-    );
-
-    console.log('UPLOAD DEBUG existingKeys.size:', existingKeys.size);
+    // --- 3. Fetch ALL existing proveedores with pagination ---
+    const existingProviders = await fetchAllExistingProviders();
+    const existingKeys = new Set(existingProviders.map((e) => dedupeKey(e)));
 
     // --- 4. Split unique records into new vs already in DB ---
     const newRecords = [];
+    let alreadyExisting = 0;
 
     for (const r of uniqueRecords) {
       const key = dedupeKey(r);
       if (existingKeys.has(key)) {
-        duplicatesPreview.push({
-          reason: 'already_exists_in_db',
-          ruc: r.ruc,
-          provider_name: r.provider_name,
-          unit: r.unit,
-          update_date: r.update_date,
-          duplicateKey: key,
-        });
+        alreadyExisting += 1;
       } else {
         newRecords.push(r);
       }
     }
 
-    console.log('UPLOAD DEBUG newRecords.length:', newRecords.length);
-    console.log('UPLOAD DEBUG first 5 newRecords:', newRecords.slice(0, 5));
-
     // --- 5. Batch insert new proveedores ---
     const BATCH_SIZE = 200;
+    let insertedProviders = 0;
 
     for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
       const batch = newRecords.slice(i, i + BATCH_SIZE);
+
+      if (batch.length === 0) continue;
 
       const insertPayload = batch.map((r) => ({
         ruc: r.ruc,
@@ -176,6 +162,8 @@ router.post('/:fileId/process', async (req, res) => {
 
       const { error: insertErr } = await supabase.from('proveedores').insert(insertPayload);
       if (insertErr) throw insertErr;
+
+      insertedProviders += batch.length;
 
       for (const r of batch) {
         existingKeys.add(dedupeKey(r));
@@ -202,16 +190,21 @@ router.post('/:fileId/process', async (req, res) => {
       totalSheets: sheetCount,
       totalRecordsOriginal: records.length,
       uniqueRecords: uniqueRecords.length,
-      insertedProviders: newRecords.length,
-      skippedDuplicates: duplicatesPreview.length,
-      duplicatesPreview: duplicatesPreview.slice(0, 200),
+      insertedProviders,
+      skippedDuplicates: duplicatesInFile,
+      alreadyExisting,
     });
   } catch (err) {
     await supabase
       .from('uploads')
       .update({ status: 'error', error_message: err.message })
       .eq('id', fileId);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+      details: err.details,
+      hint: err.hint,
+      code: err.code,
+    });
   }
 });
 
