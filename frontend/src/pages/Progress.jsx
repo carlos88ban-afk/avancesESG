@@ -17,9 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { CheckCircle2, Copy, Download, Filter, Info, Mail, RefreshCw, Search, XCircle } from 'lucide-react';
+import { CheckCircle2, Code2, Copy, Download, Filter, Info, Mail, RefreshCw, Search, XCircle } from 'lucide-react';
 
 const MONTHS = [
   { value: '01', label: 'Ene' },
@@ -153,7 +152,6 @@ function buildExcelXml(rows, filterDescription) {
   const generatedAt = formatDateTime();
   const completed = rows.filter(r => r.estado === 'completado').length;
   const pending = rows.filter(r => r.estado === 'pendiente').length;
-  const overdue = rows.filter(r => r.estado === 'vencido').length;
   const total = rows.length;
   const completionRate = total ? `${Math.round((completed / total) * 100)}%` : '0%';
   const byUnit = Object.entries(countBy(rows, 'critico_para')).sort((a, b) => b[1] - a[1]);
@@ -167,7 +165,6 @@ function buildExcelXml(rows, filterDescription) {
     xmlRow([xmlCell('Total proveedores', 'TextBold'), xmlCell(total, 'Number', 'Number')]),
     xmlRow([xmlCell('Completados', 'TextBold'), xmlCell(completed, 'StatusComplete', 'Number')]),
     xmlRow([xmlCell('Pendientes', 'TextBold'), xmlCell(pending, 'StatusPending', 'Number')]),
-    xmlRow([xmlCell('Vencidos', 'TextBold'), xmlCell(overdue, 'StatusOverdue', 'Number')]),
     xmlRow([xmlCell('Avance total', 'TextBold'), xmlCell(completionRate, 'MetaValue')]),
     xmlRow([xmlCell('', 'Blank')], 10),
     xmlRow([xmlCell('Resumen por unidad', 'Section', 'String', 1)], 24),
@@ -186,8 +183,6 @@ function buildExcelXml(rows, filterDescription) {
       xmlCell(completed, 'StatusComplete', 'Number'),
       xmlCell('Pendientes', 'MetaLabel'),
       xmlCell(pending, 'StatusPending', 'Number'),
-      xmlCell('Vencidos', 'MetaLabel'),
-      xmlCell(overdue, 'StatusOverdue', 'Number'),
     ]),
     xmlRow([xmlCell('', 'Blank')], 10),
     xmlRow(REPORT_COLUMNS.map(col => xmlCell(col.header, 'Header')), 24),
@@ -246,26 +241,69 @@ function downloadExcelReport(rows, filterDescription) {
   URL.revokeObjectURL(url);
 }
 
-function buildEmailText(unit, pendingRows) {
+function buildEmailSubject(unit) {
+  return `Seguimiento de proveedores pendientes - ${unit}`;
+}
+
+function buildEmailHtml(unit, pendingRows) {
+  const safeUnit = xmlEscape(unit);
+  const rowsHtml = pendingRows.map((row, index) => `
+    <tr style="background-color:${index % 2 === 0 ? '#ffffff' : '#f9fafb'};">
+      <td style="border:1px solid #e5e7eb;padding:10px 12px;color:#111827;font-size:14px;line-height:1.35;">${xmlEscape(row.proveedor || '-')}</td>
+      <td style="border:1px solid #e5e7eb;padding:10px 12px;color:#374151;font-size:14px;line-height:1.35;font-family:Consolas,Arial,sans-serif;">${xmlEscape(row.ruc || '-')}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;font-size:14px;line-height:1.55;max-width:760px;">
+      <p style="margin:0 0 14px 0;"><strong>Asunto:</strong> ${xmlEscape(buildEmailSubject(unit))}</p>
+      <p style="margin:0 0 14px 0;">Estimado equipo de ${safeUnit},</p>
+      <p style="margin:0 0 14px 0;">
+        Se ha identificado que existen proveedores pendientes de completar la encuesta ESG.
+        Su seguimiento es importante para asegurar el avance oportuno del proceso y mantener la informacion de cumplimiento actualizada.
+      </p>
+      <p style="margin:0 0 12px 0;font-weight:600;color:#1f2937;">
+        A continuacion, se detallan los proveedores que requieren accion:
+      </p>
+      <table style="border-collapse:collapse;width:100%;margin:0 0 16px 0;border:1px solid #d1d5db;">
+        <thead>
+          <tr style="background-color:#f3f4f6;">
+            <th style="border:1px solid #d1d5db;padding:10px 12px;text-align:left;color:#1f2937;font-size:13px;font-weight:700;">Nombre del proveedor</th>
+            <th style="border:1px solid #d1d5db;padding:10px 12px;text-align:left;color:#1f2937;font-size:13px;font-weight:700;width:160px;">RUC</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+      <p style="margin:0 0 14px 0;">
+        Agradeceremos su apoyo para gestionar estos pendientes a la brevedad.
+      </p>
+      <p style="margin:0;">Saludos cordiales,</p>
+    </div>
+  `.trim();
+}
+
+function buildEmailPlainText(unit, pendingRows) {
   const tableRows = pendingRows
-    .map(row => `| ${row.proveedor || '-'} | ${row.ruc || '-'} |`)
+    .map(row => `${row.proveedor || '-'}\t${row.ruc || '-'}`)
     .join('\n');
 
   return [
-    `Para: ${unit}`,
-    'Asunto: Proveedores pendientes de completar encuesta ESG',
+    `Asunto: ${buildEmailSubject(unit)}`,
     '',
     `Estimado equipo de ${unit},`,
     '',
-    'Se identifico que existen proveedores pendientes de completar la encuesta ESG. Agradeceremos realizar el seguimiento correspondiente para asegurar el cierre oportuno.',
+    'Se ha identificado que existen proveedores pendientes de completar la encuesta ESG. Su seguimiento es importante para asegurar el avance oportuno del proceso y mantener la informacion de cumplimiento actualizada.',
     '',
-    '| Nombre del proveedor | RUC |',
-    '| --- | --- |',
+    'A continuacion, se detallan los proveedores que requieren accion:',
+    '',
+    'Nombre del proveedor\tRUC',
     tableRows,
     '',
-    'Quedamos atentos a cualquier consulta.',
+    'Agradeceremos su apoyo para gestionar estos pendientes a la brevedad.',
     '',
-    'Saludos,',
+    'Saludos cordiales,',
   ].join('\n');
 }
 
@@ -338,8 +376,12 @@ export default function Progress() {
     selectedYears,
     selectedMonths,
   });
-  const emailText = useMemo(
-    () => buildEmailText(unitFilter, filteredPendingRowsForUnit),
+  const emailHtml = useMemo(
+    () => buildEmailHtml(unitFilter, filteredPendingRowsForUnit),
+    [unitFilter, filteredPendingRowsForUnit],
+  );
+  const emailPlainText = useMemo(
+    () => buildEmailPlainText(unitFilter, filteredPendingRowsForUnit),
     [unitFilter, filteredPendingRowsForUnit],
   );
   const Provider = /** @type {any} */ (TooltipProvider);
@@ -362,10 +404,28 @@ export default function Progress() {
 
   const handleCopyEmail = async () => {
     try {
-      await navigator.clipboard.writeText(emailText);
+      if (window.ClipboardItem) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([emailHtml], { type: 'text/html' }),
+            'text/plain': new Blob([emailPlainText], { type: 'text/plain' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(emailPlainText);
+      }
       toast.success('Correo copiado al portapapeles');
     } catch {
       toast.error('No se pudo copiar el correo');
+    }
+  };
+
+  const handleCopyEmailHtml = async () => {
+    try {
+      await navigator.clipboard.writeText(emailHtml);
+      toast.success('HTML del correo copiado');
+    } catch {
+      toast.error('No se pudo copiar el HTML');
     }
   };
 
@@ -615,44 +675,35 @@ export default function Progress() {
         </Card>
 
         <Dialog open={isMailModalOpen} onOpenChange={setIsMailModalOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
+          <DialogContent className="max-h-[80vh] w-[calc(100vw-1.5rem)] max-w-4xl grid-rows-[auto,minmax(0,1fr),auto] gap-0 overflow-hidden p-0 sm:w-full">
+            <DialogHeader className="border-b px-5 py-4 pr-11 sm:px-6">
               <DialogTitle>Correo para {unitFilter}</DialogTitle>
               <DialogDescription>
-                Proveedores pendientes de completar la encuesta ESG.
+                Vista previa lista para copiar en Outlook o Gmail.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
-              <Textarea
-                value={emailText}
-                readOnly
-                className="min-h-[220px] font-mono text-xs"
-              />
+            <div className="min-h-0 overflow-y-auto bg-muted/30 px-4 py-4 sm:px-6">
+              <div className="mb-3 flex flex-col gap-1 rounded-md border bg-background px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium text-foreground">Asunto</span>
+                <span className="text-muted-foreground sm:text-right">{buildEmailSubject(unitFilter)}</span>
+              </div>
 
-              <div className="rounded-md border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Nombre del proveedor</TableHead>
-                      <TableHead>RUC</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPendingRowsForUnit.map((row, index) => (
-                      <TableRow key={`${row.ruc}-${index}`}>
-                        <TableCell className="font-medium">{row.proveedor || '-'}</TableCell>
-                        <TableCell className="font-mono text-sm text-muted-foreground">{row.ruc || '-'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="overflow-x-auto rounded-md border bg-white p-4 shadow-sm sm:p-6">
+                <div
+                  className="min-w-[560px]"
+                  dangerouslySetInnerHTML={{ __html: emailHtml }}
+                />
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 border-t bg-background px-5 py-4 sm:px-6">
               <Button variant="outline" onClick={() => setIsMailModalOpen(false)}>
                 Cerrar
+              </Button>
+              <Button variant="outline" className="gap-2" onClick={handleCopyEmailHtml}>
+                <Code2 className="w-4 h-4" />
+                Copiar como HTML
               </Button>
               <Button className="gap-2" onClick={handleCopyEmail}>
                 <Copy className="w-4 h-4" />
