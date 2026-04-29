@@ -105,7 +105,7 @@ export default function Upload() {
 
       setResults({
         totalSheets: data.totalSheets || 0,
-        totalRecords: data.totalRecords || 0,
+        totalRecords: data.insertedProviders || 0,
       });
 
       setProcessing(false);
