@@ -143,7 +143,9 @@ router.post('/:fileId/process', async (req, res) => {
     const BATCH_SIZE = 200;
 
     for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
-      const batch = newRecords.slice(i, i + BATCH_SIZE).map((r) => ({
+      const batch = newRecords.slice(i, i + BATCH_SIZE);
+
+      const insertPayload = batch.map((r) => ({
         ruc: r.ruc,
         provider_name: r.provider_name,
         unit: r.unit,
@@ -151,8 +153,12 @@ router.post('/:fileId/process', async (req, res) => {
         upload_id: fileId,
       }));
 
-      const { error: insertErr } = await supabase.from('proveedores').insert(batch);
+      const { error: insertErr } = await supabase.from('proveedores').insert(insertPayload);
       if (insertErr) throw insertErr;
+
+      for (const r of batch) {
+        existingKeys.add(dedupeKey(r));
+      }
     }
 
     // --- 6. Update upload record ---
