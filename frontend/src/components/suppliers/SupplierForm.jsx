@@ -16,34 +16,44 @@ export default function SupplierForm({
   existingSuppliers = [],
   onDuplicate,
 }) {
+  const isEditMode = !!initialData;
+
   // Relation fields (always editable)
   const [form, setForm] = useState({
     unit: initialData?.unit || '',
     type: initialData?.type || 'retail',
   });
 
-  // The resolved base provider — pre-set in edit mode, chosen by search in create mode
-  const [selectedProvider, setSelectedProvider] = useState(
-    initialData?.proveedor_id
-      ? { id: initialData.proveedor_id, name: initialData.name, ruc: initialData.ruc || '' }
-      : null
-  );
+  // ── EDIT MODE: editable base-provider fields ──────────────────────────────
+  const [baseName, setBaseName] = useState(initialData?.name || '');
+  const [baseRuc, setBaseRuc] = useState(initialData?.ruc || '');
+  // { id, name, ruc } when the new RUC already belongs to a *different* provider
+  const [baseRucConflict, setBaseRucConflict] = useState(null);
 
-  // Name search state
+  // ── CREATE MODE: provider selection + search ──────────────────────────────
+  const [selectedProvider, setSelectedProvider] = useState(null);
   const [nameInput, setNameInput] = useState('');
   const [nameResults, setNameResults] = useState([]);
   const [nameSearching, setNameSearching] = useState(false);
   const [showNameDropdown, setShowNameDropdown] = useState(false);
-
-  // RUC hard-validation state
   const [rucInput, setRucInput] = useState('');
-  const [rucConflict, setRucConflict] = useState(null); // { id, name, ruc } when exact RUC exists
+  const [rucConflict, setRucConflict] = useState(null); // { id, name, ruc }
 
   // --- Computed ---
 
-  // Is the resolved provider already assigned to the selected unit?
   const alreadyInUnitRelation = useMemo(() => {
-    if (!selectedProvider || !form.unit) return null;
+    if (!form.unit) return null;
+    if (isEditMode) {
+      return (
+        existingSuppliers.find(
+          (s) =>
+            s.proveedor_id === initialData.proveedor_id &&
+            s.unit === form.unit &&
+            s.id !== initialData.id
+        ) || null
+      );
+    }
+    if (!selectedProvider) return null;
     return (
       existingSuppliers.find(
         (s) =>
@@ -52,18 +62,46 @@ export default function SupplierForm({
           s.id !== initialData?.id
       ) || null
     );
-  }, [selectedProvider, form.unit, existingSuppliers, initialData]);
+  }, [selectedProvider, form.unit, existingSuppliers, initialData, isEditMode]);
 
-  const canSubmit =
-    (selectedProvider || nameInput.trim().length > 0) &&
-    !!form.unit &&
-    !alreadyInUnitRelation &&
-    !(rucConflict && !selectedProvider);
+  const canSubmit = isEditMode
+    ? baseName.trim().length > 0 &&
+      !!form.unit &&
+      !alreadyInUnitRelation &&
+      !baseRucConflict
+    : (selectedProvider || nameInput.trim().length > 0) &&
+      !!form.unit &&
+      !alreadyInUnitRelation &&
+      !(rucConflict && !selectedProvider);
 
   // --- Effects ---
 
-  // Debounced name search (350 ms) — only in create mode when no provider is selected
+  // Edit mode: debounced RUC validation — block if RUC belongs to a different provider
   useEffect(() => {
+    if (!isEditMode) return;
+    const ruc = baseRuc.trim();
+    // Empty or unchanged: no conflict possible
+    if (!ruc || ruc === (initialData?.ruc || '').trim()) {
+      setBaseRucConflict(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await supplierService.search(ruc);
+        const exact = (results || []).find(
+          (r) => r.ruc === ruc && r.id !== initialData?.proveedor_id
+        );
+        setBaseRucConflict(exact || null);
+      } catch {
+        setBaseRucConflict(null);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [baseRuc, isEditMode, initialData]);
+
+  // Create mode: debounced name search (350 ms)
+  useEffect(() => {
+    if (isEditMode) return;
     const trimmed = nameInput.trim();
     if (trimmed.length < 2 || selectedProvider) {
       setNameResults([]);
@@ -81,10 +119,11 @@ export default function SupplierForm({
       }
     }, 350);
     return () => clearTimeout(timer);
-  }, [nameInput, selectedProvider]);
+  }, [nameInput, selectedProvider, isEditMode]);
 
-  // Debounced RUC search (400 ms) — hard validation: exact RUC must not already exist
+  // Create mode: debounced RUC validation (400 ms)
   useEffect(() => {
+    if (isEditMode) return;
     const ruc = rucInput.trim();
     if (ruc.length < 8 || selectedProvider) {
       setRucConflict(null);
@@ -100,9 +139,9 @@ export default function SupplierForm({
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [rucInput, selectedProvider]);
+  }, [rucInput, selectedProvider, isEditMode]);
 
-  // --- Handlers ---
+  // --- Handlers (create mode) ---
 
   const handleSelectFromSearch = (provider) => {
     setSelectedProvider(provider);
@@ -130,22 +169,31 @@ export default function SupplierForm({
     e.preventDefault();
     if (!canSubmit) return;
 
-    if (selectedProvider) {
-      // Caso A: link existing provider to unit
+    if (isEditMode) {
+      // Edit: update base provider data + relation fields
+      onSubmit({
+        name: baseName.trim(),
+        ruc: baseRuc.trim() || null,
+        unit: form.unit,
+        type: form.type,
+        status: initialData.status || 'activo',
+      });
+    } else if (selectedProvider) {
+      // Create: link existing provider to unit
       onSubmit({
         proveedor_id: selectedProvider.id,
         unit: form.unit,
         type: form.type,
-        status: initialData?.status || 'activo',
+        status: 'activo',
       });
     } else {
-      // Caso B: create new base provider + link
+      // Create: new base provider + link
       onSubmit({
         name: nameInput.trim(),
         ruc: rucInput.trim() || null,
         unit: form.unit,
         type: form.type,
-        status: initialData?.status || 'activo',
+        status: 'activo',
       });
     }
   };
@@ -162,8 +210,42 @@ export default function SupplierForm({
         <form onSubmit={handleSubmit} className="space-y-5">
 
           {/* ── PROVIDER BLOCK ─────────────────────────────── */}
-          {selectedProvider ? (
-            // Selected provider card
+          {isEditMode ? (
+            // Edit mode: editable fields for base provider data
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="baseName">Nombre del Proveedor</Label>
+                <Input
+                  id="baseName"
+                  value={baseName}
+                  onChange={(e) => setBaseName(e.target.value)}
+                  placeholder="Ej: SODEXO PERU"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="baseRuc">RUC (opcional)</Label>
+                <Input
+                  id="baseRuc"
+                  value={baseRuc}
+                  onChange={(e) => setBaseRuc(e.target.value)}
+                  placeholder="20100130204"
+                  autoComplete="off"
+                />
+                {baseRucConflict && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-md bg-destructive/10 border border-destructive/20">
+                    <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">
+                      Este RUC ya pertenece a otro proveedor:{' '}
+                      <strong>{baseRucConflict.name}</strong>. Usa un RUC distinto o déjalo en blanco.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : selectedProvider ? (
+            // Create mode: selected provider card
             <div className="space-y-1.5">
               <Label>Proveedor</Label>
               <div className="flex items-center gap-2 p-3 rounded-md bg-accent/10 border border-accent/30">
@@ -174,25 +256,21 @@ export default function SupplierForm({
                     <p className="text-xs text-muted-foreground font-mono">{selectedProvider.ruc}</p>
                   )}
                 </div>
-                {/* Only allow changing the provider in create mode */}
-                {!initialData && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground"
-                    onClick={clearSelectedProvider}
-                    title="Cambiar proveedor"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground"
+                  onClick={clearSelectedProvider}
+                  title="Cambiar proveedor"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
           ) : (
-            // Search inputs — create mode only
+            // Create mode: search inputs
             <>
-              {/* Name with API autocomplete */}
               <div className="space-y-2">
                 <Label htmlFor="name">Nombre del Proveedor</Label>
                 <div className="relative">
@@ -236,7 +314,6 @@ export default function SupplierForm({
                 </div>
               </div>
 
-              {/* RUC — hard validation */}
               <div className="space-y-2">
                 <Label htmlFor="ruc">RUC (opcional)</Label>
                 <Input
@@ -300,12 +377,11 @@ export default function SupplierForm({
 
           {/* ── WARNINGS ─────────────────────────────────────── */}
 
-          {/* Same provider already in this unit */}
           {alreadyInUnitRelation && (
             <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <strong>{selectedProvider?.name}</strong> ya está registrado en{' '}
+                <strong>{isEditMode ? baseName : selectedProvider?.name}</strong> ya está registrado en{' '}
                 <strong>{form.unit}</strong>.
                 {onDuplicate && (
                   <button
@@ -320,8 +396,7 @@ export default function SupplierForm({
             </div>
           )}
 
-          {/* Unresolved RUC conflict blocks submit */}
-          {rucConflict && !selectedProvider && (
+          {!isEditMode && rucConflict && !selectedProvider && (
             <p className="text-xs text-destructive">
               Debes usar el proveedor existente o borrar el RUC para continuar.
             </p>
