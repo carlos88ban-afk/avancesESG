@@ -1,15 +1,25 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { progressService } from '@/api/services';
-import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, CheckCircle2, XCircle, Filter, RefreshCw, Info } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { CheckCircle2, Copy, Download, Filter, Info, Mail, RefreshCw, Search, XCircle } from 'lucide-react';
 
 const MONTHS = [
   { value: '01', label: 'Ene' },
@@ -26,11 +36,43 @@ const MONTHS = [
   { value: '12', label: 'Dic' },
 ];
 
+const REPORT_COLUMNS = [
+  { header: 'Proveedor', key: 'proveedor', width: 34 },
+  { header: 'RUC', key: 'ruc', width: 16 },
+  { header: 'Critico para', key: 'critico_para', width: 22 },
+  { header: 'Tipo', key: 'tipo', width: 14 },
+  { header: 'Fecha respuesta', key: 'fecha_respuesta', width: 18 },
+  { header: 'Estado', key: 'estado', width: 16 },
+  { header: 'Metodo Match', key: 'tipo_de_cruce', width: 22 },
+  { header: 'Respondio en', key: 'respondio_en', width: 26 },
+];
+
+const CORPORATE = {
+  navy: '1F2937',
+  blue: '2563EB',
+  green: 'DCFCE7',
+  greenText: '166534',
+  red: 'FEE2E2',
+  redText: '991B1B',
+  amber: 'FEF3C7',
+  amberText: '92400E',
+  gray: 'F3F4F6',
+  border: 'D1D5DB',
+  white: 'FFFFFF',
+};
+
 /** @param {string | null | undefined} dateStr */
 function formatDate(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   const [y, m, d] = dateStr.split('T')[0].split('-');
   return `${d}/${m}/${y}`;
+}
+
+function formatDateTime(date = new Date()) {
+  return new Intl.DateTimeFormat('es-PE', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 /**
@@ -42,6 +84,191 @@ function toggle(arr, val) {
   return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
 }
 
+function normalizeStatus(status) {
+  if (status === 'completado') return 'Completado';
+  if (status === 'pendiente') return 'Pendiente';
+  if (status === 'vencido') return 'Vencido';
+  return status || '-';
+}
+
+function getStatusStyle(status) {
+  if (status === 'completado') {
+    return 'StatusComplete';
+  }
+  if (status === 'vencido') {
+    return 'StatusOverdue';
+  }
+  return 'StatusPending';
+}
+
+function buildFilterDescription({
+  unitFilter,
+  tipoFilter,
+  statusFilter,
+  search,
+  selectedYears,
+  selectedMonths,
+}) {
+  const filters = [];
+  if (unitFilter !== 'all') filters.push(`Unidad: ${unitFilter}`);
+  if (tipoFilter !== 'all') filters.push(`Tipo: ${tipoFilter}`);
+  if (statusFilter !== 'all') filters.push(`Estado: ${normalizeStatus(statusFilter)}`);
+  if (search) filters.push(`Busqueda: ${search}`);
+  if (selectedYears.length) filters.push(`Anios: ${selectedYears.join(', ')}`);
+  if (selectedMonths.length) {
+    const monthLabels = MONTHS.filter(m => selectedMonths.includes(m.value)).map(m => m.label);
+    filters.push(`Meses: ${monthLabels.join(', ')}`);
+  }
+  return filters.length ? filters.join(' | ') : 'Sin filtros aplicados: se incluyen todos los datos disponibles';
+}
+
+function countBy(rows, key) {
+  return rows.reduce((acc, row) => {
+    const value = row[key] || 'Sin dato';
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function xmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function xmlCell(value, styleId = 'Text', type = 'String', mergeAcross = 0) {
+  const mergeAttr = mergeAcross ? ` ss:MergeAcross="${mergeAcross}"` : '';
+  const safeValue = type === 'Number' ? Number(value || 0) : xmlEscape(value || '-');
+  return `<Cell ss:StyleID="${styleId}"${mergeAttr}><Data ss:Type="${type}">${safeValue}</Data></Cell>`;
+}
+
+function xmlRow(cells, height = 22) {
+  return `<Row ss:Height="${height}">${cells.join('')}</Row>`;
+}
+
+function buildExcelXml(rows, filterDescription) {
+  const generatedAt = formatDateTime();
+  const completed = rows.filter(r => r.estado === 'completado').length;
+  const pending = rows.filter(r => r.estado === 'pendiente').length;
+  const overdue = rows.filter(r => r.estado === 'vencido').length;
+  const total = rows.length;
+  const completionRate = total ? `${Math.round((completed / total) * 100)}%` : '0%';
+  const byUnit = Object.entries(countBy(rows, 'critico_para')).sort((a, b) => b[1] - a[1]);
+
+  const summaryRows = [
+    xmlRow([xmlCell('Reporte de avance de encuestas ESG', 'Title', 'String', 3)], 30),
+    xmlRow([xmlCell('Fecha de generacion', 'MetaLabel'), xmlCell(generatedAt, 'MetaValue')]),
+    xmlRow([xmlCell('Filtros aplicados', 'MetaLabel'), xmlCell(filterDescription, 'MetaValue', 'String', 2)]),
+    xmlRow([xmlCell('', 'Blank')], 10),
+    xmlRow([xmlCell('Resumen ejecutivo', 'Section', 'String', 1)], 24),
+    xmlRow([xmlCell('Total proveedores', 'TextBold'), xmlCell(total, 'Number', 'Number')]),
+    xmlRow([xmlCell('Completados', 'TextBold'), xmlCell(completed, 'StatusComplete', 'Number')]),
+    xmlRow([xmlCell('Pendientes', 'TextBold'), xmlCell(pending, 'StatusPending', 'Number')]),
+    xmlRow([xmlCell('Vencidos', 'TextBold'), xmlCell(overdue, 'StatusOverdue', 'Number')]),
+    xmlRow([xmlCell('Avance total', 'TextBold'), xmlCell(completionRate, 'MetaValue')]),
+    xmlRow([xmlCell('', 'Blank')], 10),
+    xmlRow([xmlCell('Resumen por unidad', 'Section', 'String', 1)], 24),
+    xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
+    ...byUnit.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+  ].join('');
+
+  const detailRows = [
+    xmlRow([xmlCell('Reporte de avance de encuestas ESG', 'Title', 'String', REPORT_COLUMNS.length - 1)], 30),
+    xmlRow([xmlCell('Fecha de generacion', 'MetaLabel'), xmlCell(generatedAt, 'MetaValue', 'String', 2)]),
+    xmlRow([xmlCell('Filtros aplicados', 'MetaLabel'), xmlCell(filterDescription, 'MetaValue', 'String', 6)]),
+    xmlRow([
+      xmlCell('Total proveedores', 'MetaLabel'),
+      xmlCell(total, 'Number', 'Number'),
+      xmlCell('Completados', 'MetaLabel'),
+      xmlCell(completed, 'StatusComplete', 'Number'),
+      xmlCell('Pendientes', 'MetaLabel'),
+      xmlCell(pending, 'StatusPending', 'Number'),
+      xmlCell('Vencidos', 'MetaLabel'),
+      xmlCell(overdue, 'StatusOverdue', 'Number'),
+    ]),
+    xmlRow([xmlCell('', 'Blank')], 10),
+    xmlRow(REPORT_COLUMNS.map(col => xmlCell(col.header, 'Header')), 24),
+    ...rows.map(row => xmlRow(REPORT_COLUMNS.map(col => {
+      if (col.key === 'fecha_respuesta') return xmlCell(formatDate(row.fecha_respuesta), 'Center');
+      if (col.key === 'estado') return xmlCell(normalizeStatus(row.estado), getStatusStyle(row.estado));
+      return xmlCell(row[col.key] || '-', col.key === 'ruc' ? 'Center' : 'Text');
+    }))),
+  ].join('');
+
+  const detailColumns = REPORT_COLUMNS.map(col => `<Column ss:Width="${col.width * 6}"/>`).join('');
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="11"/></Style>
+  <Style ss:ID="Title"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#${CORPORATE.white}"/><Interior ss:Color="#${CORPORATE.navy}" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Section"><Font ss:Bold="1" ss:Color="#${CORPORATE.white}"/><Interior ss:Color="#${CORPORATE.blue}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:Bold="1" ss:Color="#${CORPORATE.white}"/><Interior ss:Color="#${CORPORATE.blue}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="MetaLabel"><Font ss:Bold="1"/><Interior ss:Color="#${CORPORATE.gray}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="MetaValue"><Alignment ss:WrapText="1"/><Interior ss:Color="#${CORPORATE.gray}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="Text"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="TextBold"><Font ss:Bold="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="Center"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="Number"><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="0"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="StatusComplete"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#${CORPORATE.greenText}"/><Interior ss:Color="#${CORPORATE.green}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="StatusPending"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#${CORPORATE.redText}"/><Interior ss:Color="#${CORPORATE.red}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="StatusOverdue"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#${CORPORATE.amberText}"/><Interior ss:Color="#${CORPORATE.amber}" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#${CORPORATE.border}"/></Borders></Style>
+  <Style ss:ID="Blank"/>
+ </Styles>
+ <Worksheet ss:Name="Resumen ejecutivo">
+  <Table><Column ss:Width="210"/><Column ss:Width="150"/><Column ss:Width="150"/><Column ss:Width="150"/>${summaryRows}</Table>
+ </Worksheet>
+ <Worksheet ss:Name="Detalle">
+  <Table>${detailColumns}${detailRows}</Table>
+  <AutoFilter x:Range="R6C1:R${Math.max(6, rows.length + 6)}C${REPORT_COLUMNS.length}" xmlns="urn:schemas-microsoft-com:office:excel"/>
+ </Worksheet>
+</Workbook>`;
+}
+
+function downloadExcelReport(rows, filterDescription) {
+  const xml = buildExcelXml(rows, filterDescription);
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const datePart = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `reporte_avances_esg_${datePart}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function buildEmailText(unit, pendingRows) {
+  const tableRows = pendingRows
+    .map(row => `| ${row.proveedor || '-'} | ${row.ruc || '-'} |`)
+    .join('\n');
+
+  return [
+    `Para: ${unit}`,
+    'Asunto: Proveedores pendientes de completar encuesta ESG',
+    '',
+    `Estimado equipo de ${unit},`,
+    '',
+    'Se identifico que existen proveedores pendientes de completar la encuesta ESG. Agradeceremos realizar el seguimiento correspondiente para asegurar el cierre oportuno.',
+    '',
+    '| Nombre del proveedor | RUC |',
+    '| --- | --- |',
+    tableRows,
+    '',
+    'Quedamos atentos a cualquier consulta.',
+    '',
+    'Saludos,',
+  ].join('\n');
+}
+
 export default function Progress() {
   const queryClient = useQueryClient();
   const [unitFilter, setUnitFilter] = useState('all');
@@ -50,6 +277,7 @@ export default function Progress() {
   const [search, setSearch] = useState('');
   const [selectedYears, setSelectedYears] = useState([]);
   const [selectedMonths, setSelectedMonths] = useState([]);
+  const [isMailModalOpen, setIsMailModalOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['progress'],
@@ -89,30 +317,89 @@ export default function Progress() {
     });
   }, [rows, unitFilter, tipoFilter, statusFilter, selectedYears, selectedMonths, search]);
 
+  const filteredPendingRowsForUnit = useMemo(() => {
+    if (unitFilter === 'all') return [];
+    return rows.filter(r => r.critico_para === unitFilter && r.estado === 'pendiente');
+  }, [rows, unitFilter]);
+
+  const shouldShowMailButton =
+    unitFilter !== 'all' &&
+    statusFilter === 'pendiente' &&
+    filteredRows.some(r => r.estado === 'pendiente' && r.critico_para === unitFilter);
+
   const completedCount = filteredRows.filter(r => r.estado === 'completado').length;
   const pendingCount = filteredRows.filter(r => r.estado === 'pendiente').length;
   const total = filteredRows.length;
+  const filterDescription = buildFilterDescription({
+    unitFilter,
+    tipoFilter,
+    statusFilter,
+    search,
+    selectedYears,
+    selectedMonths,
+  });
+  const emailText = useMemo(
+    () => buildEmailText(unitFilter, filteredPendingRowsForUnit),
+    [unitFilter, filteredPendingRowsForUnit],
+  );
   const Provider = /** @type {any} */ (TooltipProvider);
+
+  const handleExportExcel = () => {
+    if (!rows.length) {
+      toast.error('No hay datos disponibles para exportar');
+      return;
+    }
+
+    const exportRows = hasAnyFilter ? filteredRows : rows;
+    if (!exportRows.length) {
+      toast.error('No hay datos para exportar con los filtros seleccionados');
+      return;
+    }
+
+    downloadExcelReport(exportRows, filterDescription);
+    toast.success('Reporte Excel generado');
+  };
+
+  const handleCopyEmail = async () => {
+    try {
+      await navigator.clipboard.writeText(emailText);
+      toast.success('Correo copiado al portapapeles');
+    } catch {
+      toast.error('No se pudo copiar el correo');
+    }
+  };
 
   return (
     <Provider>
-    <div className="space-y-6">
+      <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Avances</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Estado de completación de encuestas ESG por proveedor y unidad
+              Estado de completacion de encuestas ESG por proveedor y unidad
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-2"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ['progress'] })}
-          >
-            <RefreshCw className="w-4 h-4" />
-            Actualizar
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2"
+              onClick={handleExportExcel}
+              disabled={isLoading}
+            >
+              <Download className="w-4 h-4" />
+              Descargar Excel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['progress'] })}
+            >
+              <RefreshCw className="w-4 h-4" />
+              Actualizar
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
@@ -128,7 +415,7 @@ export default function Progress() {
           <Select value={unitFilter} onValueChange={setUnitFilter}>
             <SelectTrigger className="w-full sm:w-52">
               <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-              <SelectValue placeholder="Crítico para" />
+              <SelectValue placeholder="Critico para" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las unidades</SelectItem>
@@ -157,12 +444,22 @@ export default function Progress() {
               <SelectItem value="pendiente">Pendiente</SelectItem>
             </SelectContent>
           </Select>
+          {shouldShowMailButton && (
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={() => setIsMailModalOpen(true)}
+            >
+              <Mail className="w-4 h-4" />
+              Generar correo para la unidad
+            </Button>
+          )}
         </div>
 
         {uniqueYears.length > 0 && (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs text-muted-foreground min-w-[2.5rem]">Año:</span>
+              <span className="text-xs text-muted-foreground min-w-[2.5rem]">Anio:</span>
               {uniqueYears.map(yr => (
                 <button
                   key={yr}
@@ -212,15 +509,22 @@ export default function Progress() {
           </div>
         )}
 
-        <div className="flex gap-3">
-          <Badge variant="outline" className="text-sm px-3 py-1">
-            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-accent" />
-            {completedCount} completados ({total ? Math.round((completedCount / total) * 100) : 0}%)
-          </Badge>
-          <Badge variant="outline" className="text-sm px-3 py-1">
-            <XCircle className="w-3.5 h-3.5 mr-1.5 text-destructive" />
-            {pendingCount} pendientes ({total ? Math.round((pendingCount / total) * 100) : 0}%)
-          </Badge>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex gap-3 flex-wrap">
+            <Badge variant="outline" className="text-sm px-3 py-1">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-accent" />
+              {completedCount} completados ({total ? Math.round((completedCount / total) * 100) : 0}%)
+            </Badge>
+            <Badge variant="outline" className="text-sm px-3 py-1">
+              <XCircle className="w-3.5 h-3.5 mr-1.5 text-destructive" />
+              {pendingCount} pendientes ({total ? Math.round((pendingCount / total) * 100) : 0}%)
+            </Badge>
+          </div>
+          {unitFilter !== 'all' && statusFilter === 'pendiente' && !shouldShowMailButton && !isLoading && (
+            <span className="text-xs text-muted-foreground">
+              No hay proveedores pendientes para generar correo en la unidad seleccionada.
+            </span>
+          )}
         </div>
 
         <Card className="border-0 shadow-sm overflow-hidden">
@@ -230,11 +534,11 @@ export default function Progress() {
                 <TableRow className="bg-muted/50">
                   <TableHead>Proveedor</TableHead>
                   <TableHead>RUC</TableHead>
-                  <TableHead>Crítico para</TableHead>
+                  <TableHead>Critico para</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Fecha respuesta</TableHead>
                   <TableHead>Estado</TableHead>
-                  <TableHead>Método Match</TableHead>
+                  <TableHead>Metodo Match</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -261,12 +565,12 @@ export default function Progress() {
                       className="hover:bg-muted/30 transition-colors"
                     >
                       <TableCell className="font-medium">{r.proveedor}</TableCell>
-                      <TableCell className="font-mono text-sm text-muted-foreground">{r.ruc || '—'}</TableCell>
+                      <TableCell className="font-mono text-sm text-muted-foreground">{r.ruc || '-'}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-[10px]">{r.critico_para || '—'}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{r.critico_para || '-'}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="capitalize text-[10px]">{r.tipo || '—'}</Badge>
+                        <Badge variant="secondary" className="capitalize text-[10px]">{r.tipo || '-'}</Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(r.fecha_respuesta)}
@@ -294,13 +598,13 @@ export default function Progress() {
                                   <Info className="w-3.5 h-3.5 text-muted-foreground/50 cursor-help shrink-0" />
                                 </TooltipTrigger>
                                 <TooltipContent side="left">
-                                  <p className="font-medium mb-0.5">Respondió en</p>
+                                  <p className="font-medium mb-0.5">Respondio en</p>
                                   <p>{r.respondio_en}</p>
                                 </TooltipContent>
                               </Tooltip>
                             )}
                           </div>
-                        ) : '—'}
+                        ) : '-'}
                       </TableCell>
                     </TableRow>
                   ))
@@ -309,6 +613,54 @@ export default function Progress() {
             </Table>
           </div>
         </Card>
+
+        <Dialog open={isMailModalOpen} onOpenChange={setIsMailModalOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Correo para {unitFilter}</DialogTitle>
+              <DialogDescription>
+                Proveedores pendientes de completar la encuesta ESG.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <Textarea
+                value={emailText}
+                readOnly
+                className="min-h-[220px] font-mono text-xs"
+              />
+
+              <div className="rounded-md border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead>Nombre del proveedor</TableHead>
+                      <TableHead>RUC</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPendingRowsForUnit.map((row, index) => (
+                      <TableRow key={`${row.ruc}-${index}`}>
+                        <TableCell className="font-medium">{row.proveedor || '-'}</TableCell>
+                        <TableCell className="font-mono text-sm text-muted-foreground">{row.ruc || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsMailModalOpen(false)}>
+                Cerrar
+              </Button>
+              <Button className="gap-2" onClick={handleCopyEmail}>
+                <Copy className="w-4 h-4" />
+                Copiar correo
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Provider>
   );
