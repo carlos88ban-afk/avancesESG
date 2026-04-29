@@ -42,37 +42,56 @@ export default function Upload() {
 
   const detectDuplicates = useCallback((fileObj) => {
     const reader = new FileReader();
+
     reader.onload = (e) => {
       try {
         const workbook = XLSX.read(e.target.result, { type: 'array' });
-        const allRows = [];
+        const groups = {};
 
         workbook.SheetNames.forEach((sheetName) => {
           const sheet = workbook.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          rows.forEach((row) => allRows.push({ ...row, _sheet: sheetName }));
-        });
 
-        const groups = {};
-        allRows.forEach((row) => {
-          const ruc = String(row.ruc || row.RUC || '').trim();
-          const providerName = String(row.provider_name || row['Provider Name'] || row['Nombre Proveedor'] || '').trim();
-          const unit = String(row.unit || row.Unit || row.Unidad || '').trim();
-          const updateDate = String(row.update_date || row['Update Date'] || row.Fecha || '').trim();
-          const key = `${ruc}||${providerName.toLowerCase()}||${unit}||${updateDate}`;
+          // Leer como matriz, no como objetos por headers
+          const rows = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            defval: '',
+            raw: false,
+          });
 
-          if (!groups[key]) {
-            groups[key] = { ruc, providerName, unit, updateDate, count: 0 };
-          }
-          groups[key].count += 1;
+          // Datos desde fila 3 => índice 2
+          rows.slice(2).forEach((row) => {
+            const updateDate = String(row[1] || '').trim(); // Columna B
+            const ruc = String(row[3] || '').trim();        // Columna D
+            const providerName = String(row[4] || '').trim(); // Columna E
+            const unit = String(sheetName || '').trim();    // Nombre de hoja
+
+            // Ignorar filas vacías
+            if (!updateDate && !ruc && !providerName) return;
+
+            const key = `${ruc}||${providerName.toLowerCase()}||${unit}||${updateDate}`;
+
+            if (!groups[key]) {
+              groups[key] = {
+                ruc,
+                providerName,
+                unit,
+                updateDate,
+                count: 0,
+              };
+            }
+
+            groups[key].count += 1;
+          });
         });
 
         const dups = Object.values(groups).filter((g) => g.count > 1);
         setDuplicatesPreview(dups);
-      } catch {
-        // silently ignore parse errors in debug mode
+      } catch (err) {
+        console.error('Error leyendo Excel para debug de duplicados:', err);
+        setDuplicatesPreview([]);
       }
     };
+
     reader.readAsArrayBuffer(fileObj);
   }, []);
 
