@@ -132,30 +132,24 @@ export default function Dashboard() {
             <TypeChart data={metrics.typeData} />
           </div>
 
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-2 space-y-6">
-              {[
-                {
-                  label: 'InRetail (Empresas Públicas)',
-                  keys: ['SPSA', 'Farmacias Peruanas', 'Real Plaza'],
-                },
-                {
-                  label: 'Empresas Privadas',
-                  keys: null,
-                },
-              ].map(({ label, keys }) => {
-                const group = keys
-                  ? metrics.unitData.filter((item) => keys.some((k) => item.fullUnit?.includes(k)))
-                  : metrics.unitData.filter((item) => !['SPSA', 'Farmacias Peruanas', 'Real Plaza'].some((k) => item.fullUnit?.includes(k)));
-                if (group.length === 0) return null;
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</h2>
+            {(() => {
+              const PUBLIC_KEYS = ['spsa', 'farmacias peruanas', 'real plaza'];
+              const isPublic = (fullUnit) => PUBLIC_KEYS.some((k) => fullUnit?.toLowerCase().includes(k));
+              const groups = [
+                { label: 'InRetail (Empresas Públicas)', items: metrics.unitData.filter((i) => isPublic(i.fullUnit)) },
+                { label: 'Empresas Privadas', items: metrics.unitData.filter((i) => !isPublic(i.fullUnit)) },
+              ];
+              return groups.map(({ label, items }) => {
+                if (items.length === 0) return null;
                 return (
-                  <div key={label}>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">{label}</p>
-                    <div className="space-y-3">
-                      {group.map((item) => (
+                  <Card key={label} className="border shadow-sm">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      {items.map((item) => (
                         <div key={item.fullUnit}>
                           <button
                             className="w-full text-left focus-visible:outline-none"
@@ -193,12 +187,12 @@ export default function Dashboard() {
                           )}
                         </div>
                       ))}
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 );
-              })}
-            </CardContent>
-          </Card>
+              });
+            })()}
+          </div>
         </>
       )}
     </div>
