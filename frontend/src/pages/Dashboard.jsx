@@ -136,45 +136,67 @@ export default function Dashboard() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Detalle por Unidad</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 pt-2">
-              {metrics.unitData.map((item) => (
-                <div key={item.fullUnit}>
-                  <button
-                    className="w-full text-left focus-visible:outline-none"
-                    onClick={() => setExpandedUnit(expandedUnit === item.fullUnit ? null : item.fullUnit)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <ProgressBar
-                          label={item.fullUnit}
-                          completed={item.completed}
-                          total={item.total}
-                          className=""
-                        />
-                      </div>
-                      <ChevronDown
-                        className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${expandedUnit === item.fullUnit ? 'rotate-180' : ''}`}
-                      />
+            <CardContent className="pt-2 space-y-6">
+              {[
+                {
+                  label: 'InRetail (Empresas Públicas)',
+                  keys: ['SPSA', 'Farmacias Peruanas', 'Real Plaza'],
+                },
+                {
+                  label: 'Empresas Privadas',
+                  keys: null,
+                },
+              ].map(({ label, keys }) => {
+                const group = keys
+                  ? metrics.unitData.filter((item) => keys.some((k) => item.fullUnit?.includes(k)))
+                  : metrics.unitData.filter((item) => !['SPSA', 'Farmacias Peruanas', 'Real Plaza'].some((k) => item.fullUnit?.includes(k)));
+                if (group.length === 0) return null;
+                return (
+                  <div key={label}>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">{label}</p>
+                    <div className="space-y-3">
+                      {group.map((item) => (
+                        <div key={item.fullUnit}>
+                          <button
+                            className="w-full text-left focus-visible:outline-none"
+                            onClick={() => setExpandedUnit(expandedUnit === item.fullUnit ? null : item.fullUnit)}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <ProgressBar
+                                  label={item.fullUnit}
+                                  completed={item.completed}
+                                  total={item.total}
+                                  className=""
+                                />
+                              </div>
+                              <ChevronDown
+                                className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${expandedUnit === item.fullUnit ? 'rotate-180' : ''}`}
+                              />
+                            </div>
+                          </button>
+                          {expandedUnit === item.fullUnit && (
+                            <div className="mt-3 ml-1 pl-3 border-l-2 border-muted space-y-3">
+                              <ProgressBar
+                                label="Retail"
+                                completed={item.retailCompleted}
+                                total={item.retailTotal}
+                                className=""
+                              />
+                              <ProgressBar
+                                label="No Retail"
+                                completed={item.noRetailCompleted}
+                                total={item.noRetailTotal}
+                                className=""
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  </button>
-                  {expandedUnit === item.fullUnit && (
-                    <div className="mt-3 ml-1 pl-3 border-l-2 border-muted space-y-3">
-                      <ProgressBar
-                        label="Retail"
-                        completed={item.retailCompleted}
-                        total={item.retailTotal}
-                        className=""
-                      />
-                      <ProgressBar
-                        label="No Retail"
-                        completed={item.noRetailCompleted}
-                        total={item.noRetailTotal}
-                        className=""
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </>
