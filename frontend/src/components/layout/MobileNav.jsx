@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Upload, Table2, Leaf, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, Upload, Table2, Leaf, Menu, X, ClipboardCheck, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -9,6 +9,8 @@ const navItems = [
   { label: 'Proveedores Críticos', path: '/suppliers', icon: Users },
   { label: 'Cargar Archivo', path: '/upload', icon: Upload },
   { label: 'Avances', path: '/progress', icon: Table2 },
+  { label: 'Evaluaciones', path: '/evaluacion', icon: ClipboardCheck },
+  { label: 'Documentacion', path: '/documentation', icon: BookOpen },
 ];
 
 export default function MobileNav() {

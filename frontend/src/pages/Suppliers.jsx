@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, AlertTriangle, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import SupplierForm from '../components/suppliers/SupplierForm';
 
 export default function Suppliers() {
@@ -17,6 +18,8 @@ export default function Suppliers() {
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [search, setSearch] = useState('');
+  const [selectedUnits, setSelectedUnits] = useState([]);
+  const [selectedTypes, setSelectedTypes] = useState([]);
 
   // Each item: { id (proveedor_unidad), proveedor_id, name, ruc, unit, type, status }
   const { data: suppliers = [], isLoading } = useQuery({
@@ -72,13 +75,28 @@ export default function Suppliers() {
     },
   });
 
+  const unitOptions = [...new Set(suppliers.map((s) => s.unit).filter(Boolean))].sort();
+  const typeOptions = [...new Set(suppliers.map((s) => s.type).filter(Boolean))].sort();
+
+  const toggleFilter = (value, selectedValues, setSelectedValues) => {
+    setSelectedValues(
+      selectedValues.includes(value)
+        ? selectedValues.filter((item) => item !== value)
+        : [...selectedValues, value]
+    );
+  };
+
   const filtered = suppliers.filter((s) => {
-    const q = search.toLowerCase();
-    return (
+    const q = search.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
       s.name?.toLowerCase().includes(q) ||
       s.ruc?.toLowerCase().includes(q) ||
-      s.unit?.toLowerCase().includes(q)
-    );
+      s.unit?.toLowerCase().includes(q);
+    const matchesUnit = selectedUnits.length === 0 || selectedUnits.includes(s.unit);
+    const matchesType = selectedTypes.length === 0 || selectedTypes.includes(s.type);
+
+    return matchesSearch && matchesUnit && matchesType;
   });
 
   return (
@@ -95,14 +113,75 @@ export default function Suppliers() {
         </Button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por nombre, RUC o unidad..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nombre, RUC o unidad..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="justify-start">
+                <SlidersHorizontal className="w-4 h-4 mr-2" />
+                Unidad
+                {selectedUnits.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">{selectedUnits.length}</Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>Crítico para</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {unitOptions.map((unit) => (
+                <DropdownMenuCheckboxItem
+                  key={unit}
+                  checked={selectedUnits.includes(unit)}
+                  onCheckedChange={() => toggleFilter(unit, selectedUnits, setSelectedUnits)}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  {unit}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="justify-start">
+                <SlidersHorizontal className="w-4 h-4 mr-2" />
+                Tipo
+                {selectedTypes.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">{selectedTypes.length}</Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>Tipo</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {typeOptions.map((type) => (
+                <DropdownMenuCheckboxItem
+                  key={type}
+                  checked={selectedTypes.includes(type)}
+                  onCheckedChange={() => toggleFilter(type, selectedTypes, setSelectedTypes)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="capitalize"
+                >
+                  {type}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <p className="text-sm font-medium text-muted-foreground">
+          {filtered.length} proveedores encontrados
+        </p>
       </div>
 
       <Card className="border-0 shadow-sm overflow-hidden">
@@ -111,9 +190,8 @@ export default function Suppliers() {
             <TableRow className="bg-muted/50">
               <TableHead>Nombre</TableHead>
               <TableHead>RUC</TableHead>
-              <TableHead>Unidad</TableHead>
+              <TableHead>Crítico para</TableHead>
               <TableHead>Tipo</TableHead>
-              <TableHead>Estado</TableHead>
               <TableHead className="w-24">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -121,7 +199,7 @@ export default function Suppliers() {
             {isLoading ? (
               Array(3).fill(0).map((_, i) => (
                 <TableRow key={i}>
-                  {Array(6).fill(0).map((_, j) => (
+                  {Array(5).fill(0).map((_, j) => (
                     <TableCell key={j}>
                       <div className="h-4 bg-muted animate-pulse rounded" />
                     </TableCell>
@@ -130,8 +208,10 @@ export default function Suppliers() {
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                  {search ? 'Sin resultados para la búsqueda' : 'No hay proveedores registrados'}
+                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                  {search || selectedUnits.length > 0 || selectedTypes.length > 0
+                    ? 'Sin resultados para los filtros aplicados'
+                    : 'No hay proveedores registrados'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -146,17 +226,6 @@ export default function Suppliers() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="capitalize">{s.type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      className={
-                        s.status === 'activo'
-                          ? 'bg-accent text-accent-foreground'
-                          : 'bg-muted text-muted-foreground'
-                      }
-                    >
-                      {s.status}
-                    </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">

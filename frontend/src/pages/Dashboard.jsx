@@ -15,7 +15,7 @@ export default function Dashboard() {
     queryFn: () => dashboardService.getMetrics(),
   });
 
-  console.log('dashboardData raw', dashboardData);
+
 
   const rawDashboardData =
     Array.isArray(dashboardData)

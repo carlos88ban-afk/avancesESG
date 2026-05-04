@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Upload, Table2, Leaf, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Users, Upload, Table2, Leaf, ClipboardCheck, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { label: 'Cargar Archivo', path: '/upload', icon: Upload },
   { label: 'Avances', path: '/progress', icon: Table2 },
   { label: 'Evaluaciones', path: '/evaluacion', icon: ClipboardCheck },
+  { label: 'Documentacion', path: '/documentation', icon: BookOpen },
 ];
 
 export default function Sidebar() {

@@ -13,6 +13,30 @@ function dedupeKey(r) {
   return `${r.ruc ?? ''}__${normalizeText(r.provider_name)}`;
 }
 
+async function fetchAllExistingProviders() {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('proveedores')
+      .select('ruc, provider_name, unit, update_date')
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows = allRows.concat(data);
+
+    if (data.length < pageSize) break;
+
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -86,59 +110,30 @@ router.post('/:fileId/process', async (req, res) => {
     // --- 2. Dedup within the file itself ---
     const seenKeys = new Set();
     const uniqueRecords = [];
-    const duplicatesPreview = [];
+    let duplicatesInFile = 0;
 
     for (const r of records) {
       const key = dedupeKey(r);
       if (seenKeys.has(key)) {
-        duplicatesPreview.push({
-          reason: 'duplicate_in_file',
-          ruc: r.ruc,
-          provider_name: r.provider_name,
-          unit: r.unit,
-          update_date: r.update_date,
-          duplicateKey: key,
-        });
+        duplicatesInFile += 1;
       } else {
         seenKeys.add(key);
         uniqueRecords.push(r);
       }
     }
 
-    // --- 3. Fetch existing proveedores (paginated) and build a key set ---
-    const existingKeys = new Set();
-    const DB_PAGE = 1000;
-    let offset = 0;
-    let keepFetching = true;
-
-    while (keepFetching) {
-      const { data: page, error: pageErr } = await supabase
-        .from('proveedores')
-        .select('ruc, provider_name')
-        .range(offset, offset + DB_PAGE - 1);
-
-      if (pageErr) throw pageErr;
-
-      for (const e of page ?? []) existingKeys.add(dedupeKey(e));
-
-      keepFetching = (page?.length ?? 0) === DB_PAGE;
-      offset += DB_PAGE;
-    }
+    // --- 3. Fetch ALL existing proveedores with pagination ---
+    const existingProviders = await fetchAllExistingProviders();
+    const existingKeys = new Set(existingProviders.map((e) => dedupeKey(e)));
 
     // --- 4. Split unique records into new vs already in DB ---
     const newRecords = [];
+    let alreadyExisting = 0;
 
     for (const r of uniqueRecords) {
       const key = dedupeKey(r);
       if (existingKeys.has(key)) {
-        duplicatesPreview.push({
-          reason: 'already_exists_in_db',
-          ruc: r.ruc,
-          provider_name: r.provider_name,
-          unit: r.unit,
-          update_date: r.update_date,
-          duplicateKey: key,
-        });
+        alreadyExisting += 1;
       } else {
         newRecords.push(r);
       }
@@ -146,9 +141,14 @@ router.post('/:fileId/process', async (req, res) => {
 
     // --- 5. Batch insert new proveedores ---
     const BATCH_SIZE = 200;
+    let insertedProviders = 0;
 
     for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
-      const batch = newRecords.slice(i, i + BATCH_SIZE).map((r) => ({
+      const batch = newRecords.slice(i, i + BATCH_SIZE);
+
+      if (batch.length === 0) continue;
+
+      const insertPayload = batch.map((r) => ({
         ruc: r.ruc,
         provider_name: r.provider_name,
         unit: r.unit,
@@ -156,10 +156,14 @@ router.post('/:fileId/process', async (req, res) => {
         upload_id: fileId,
       }));
 
-      if (batch.length === 0) continue;
-
-      const { error: insertErr } = await supabase.from('proveedores').insert(batch);
+      const { error: insertErr } = await supabase.from('proveedores').insert(insertPayload);
       if (insertErr) throw insertErr;
+
+      insertedProviders += batch.length;
+
+      for (const r of batch) {
+        existingKeys.add(dedupeKey(r));
+      }
     }
 
     // --- 6. Update upload record ---
@@ -182,9 +186,9 @@ router.post('/:fileId/process', async (req, res) => {
       totalSheets: sheetCount,
       totalRecordsOriginal: records.length,
       uniqueRecords: uniqueRecords.length,
-      insertedProviders: newRecords.length,
-      skippedDuplicates: duplicatesPreview.length,
-      duplicatesPreview: duplicatesPreview.slice(0, 200),
+      insertedProviders,
+      skippedDuplicates: duplicatesInFile,
+      alreadyExisting,
     });
   } catch (err) {
     const errMsg = err.message || String(err);
@@ -194,9 +198,9 @@ router.post('/:fileId/process', async (req, res) => {
       .eq('id', fileId);
     res.status(500).json({
       error: errMsg,
-      ...(err.details && { details: err.details }),
-      ...(err.hint   && { hint: err.hint }),
-      ...(err.code   && { code: err.code }),
+      details: err.details,
+      hint: err.hint,
+      code: err.code,
     });
   }
 });
