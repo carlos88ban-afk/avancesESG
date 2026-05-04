@@ -588,8 +588,8 @@ export default function Progress() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex gap-3 flex-wrap">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex gap-3 flex-wrap items-center">
             <Badge variant="outline" className="text-sm px-3 py-1">
               <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-accent" />
               {completedCount} completados ({total ? Math.round((completedCount / total) * 100) : 0}%)
@@ -599,6 +599,11 @@ export default function Progress() {
               {pendingCount} pendientes ({total ? Math.round((pendingCount / total) * 100) : 0}%)
             </Badge>
           </div>
+          <span className="text-sm text-muted-foreground tabular-nums">
+            {hasAnyFilter
+              ? <><span className="font-medium text-foreground">{total}</span> de {rows.length} registros</>
+              : <><span className="font-medium text-foreground">{rows.length}</span> registros en total</>}
+          </span>
           {singleUnit !== null && statusFilter === 'pendiente' && !shouldShowMailButton && !isLoading && (
             <span className="text-xs text-muted-foreground">
               No hay proveedores pendientes para generar correo en la unidad seleccionada.
