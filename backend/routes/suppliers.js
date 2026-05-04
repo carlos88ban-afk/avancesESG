@@ -128,12 +128,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // --- 2. Check for duplicate (proveedor_id, unit) ---
+    // --- 2. Check for duplicate (proveedor_id, unit, type) ---
     const { data: existing } = await supabase
       .from('proveedor_unidad')
       .select('id, unit, type, status')
       .eq('proveedor_id', proveedorData.id)
       .eq('unit', unit)
+      .eq('type', type)
       .maybeSingle();
 
     if (existing) {

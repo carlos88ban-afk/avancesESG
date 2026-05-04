@@ -8,13 +8,9 @@ const supabase = require('../db/supabase');
 const { parseExcelFile } = require('../lib/excelParser');
 const { normalizeText } = require('../lib/constants');
 
+// Key must match the DB unique constraint: UNIQUE (ruc, provider_name_clean)
 function dedupeKey(r) {
-  return [
-    r.ruc ?? '',
-    normalizeText(r.provider_name),
-    r.unit ?? '',
-    r.update_date ?? '',
-  ].join('__');
+  return `${r.ruc ?? ''}__${normalizeText(r.provider_name)}`;
 }
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'tmp');
@@ -109,16 +105,25 @@ router.post('/:fileId/process', async (req, res) => {
       }
     }
 
-    // --- 3. Fetch existing proveedores and build a key set ---
-    const { data: existing, error: existingErr } = await supabase
-      .from('proveedores')
-      .select('id, ruc, provider_name, unit, update_date');
+    // --- 3. Fetch existing proveedores (paginated) and build a key set ---
+    const existingKeys = new Set();
+    const DB_PAGE = 1000;
+    let offset = 0;
+    let keepFetching = true;
 
-    if (existingErr) throw existingErr;
+    while (keepFetching) {
+      const { data: page, error: pageErr } = await supabase
+        .from('proveedores')
+        .select('ruc, provider_name')
+        .range(offset, offset + DB_PAGE - 1);
 
-    const existingKeys = new Set(
-      (existing ?? []).map((e) => dedupeKey(e))
-    );
+      if (pageErr) throw pageErr;
+
+      for (const e of page ?? []) existingKeys.add(dedupeKey(e));
+
+      keepFetching = (page?.length ?? 0) === DB_PAGE;
+      offset += DB_PAGE;
+    }
 
     // --- 4. Split unique records into new vs already in DB ---
     const newRecords = [];
@@ -151,6 +156,8 @@ router.post('/:fileId/process', async (req, res) => {
         upload_id: fileId,
       }));
 
+      if (batch.length === 0) continue;
+
       const { error: insertErr } = await supabase.from('proveedores').insert(batch);
       if (insertErr) throw insertErr;
     }
@@ -180,11 +187,17 @@ router.post('/:fileId/process', async (req, res) => {
       duplicatesPreview: duplicatesPreview.slice(0, 200),
     });
   } catch (err) {
+    const errMsg = err.message || String(err);
     await supabase
       .from('uploads')
-      .update({ status: 'error', error_message: err.message })
+      .update({ status: 'error', error_message: errMsg })
       .eq('id', fileId);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: errMsg,
+      ...(err.details && { details: err.details }),
+      ...(err.hint   && { hint: err.hint }),
+      ...(err.code   && { code: err.code }),
+    });
   }
 });
 

@@ -49,10 +49,11 @@ export default function SupplierForm({
         (s) =>
           s.proveedor_id === selectedProvider.id &&
           s.unit === form.unit &&
+          s.type === form.type &&
           s.id !== initialData?.id
       ) || null
     );
-  }, [selectedProvider, form.unit, existingSuppliers, initialData]);
+  }, [selectedProvider, form.unit, form.type, existingSuppliers, initialData]);
 
   const canSubmit =
     (selectedProvider || nameInput.trim().length > 0) &&
