@@ -1,7 +1,7 @@
 export const BUSINESS_UNITS = [
   "SPSA",
   "FARMACIAS PERUANAS",
-  "IFX",
+  "IFXP",
   "REAL PLAZA",
   "PROMART",
   "OECHSLE",
@@ -11,7 +11,7 @@ export const UNIT_NORMALIZATION = {
   "SUPERMERCADOS PERUANOS": "SPSA",
   "INKAFARMA": "FARMACIAS PERUANAS",
   "QUIMICA SUIZA": "FARMACIAS PERUANAS",
-  "FINANCIERA OH": "IFX",
+  "FINANCIERA OH": "IFXP",
 };
 
 export const SUPPLIER_TYPES = ["retail", "no retail"];
