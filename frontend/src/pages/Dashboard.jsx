@@ -143,10 +143,22 @@ export default function Dashboard() {
               ];
               return groups.map(({ label, items }) => {
                 if (items.length === 0) return null;
+                const groupTotal = items.reduce((acc, i) => acc + i.total, 0);
+                const groupCompleted = items.reduce((acc, i) => acc + i.completed, 0);
+                const groupPct = groupTotal > 0 ? Math.round((groupCompleted / groupTotal) * 100) : 0;
                 return (
                   <Card key={label} className="border shadow-sm">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</CardTitle>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</CardTitle>
+                        <div className="text-right shrink-0">
+                          <span className="text-2xl font-bold leading-none">{groupPct}%</span>
+                          <p className="text-xs text-muted-foreground mt-0.5">{groupCompleted} / {groupTotal} proveedores</p>
+                        </div>
+                      </div>
+                      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-2">
+                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${groupPct}%` }} />
+                      </div>
                     </CardHeader>
                     <CardContent className="space-y-3 pt-0">
                       {items.map((item) => (
