@@ -101,7 +101,7 @@ function getStatusStyle(status) {
 }
 
 function buildFilterDescription({
-  unitFilter,
+  selectedUnits,
   tipoFilter,
   statusFilter,
   search,
@@ -109,7 +109,7 @@ function buildFilterDescription({
   selectedMonths,
 }) {
   const filters = [];
-  if (unitFilter !== 'all') filters.push(`Unidad: ${unitFilter}`);
+  if (selectedUnits.length) filters.push(`Unidad: ${selectedUnits.join(', ')}`);
   if (tipoFilter !== 'all') filters.push(`Tipo: ${tipoFilter}`);
   if (statusFilter !== 'all') filters.push(`Estado: ${normalizeStatus(statusFilter)}`);
   if (search) filters.push(`Busqueda: ${search}`);
@@ -309,7 +309,7 @@ function buildEmailPlainText(unit, pendingRows) {
 
 export default function Progress() {
   const queryClient = useQueryClient();
-  const [unitFilter, setUnitFilter] = useState('all');
+  const [selectedUnits, setSelectedUnits] = useState([]);
   const [tipoFilter, setTipoFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -328,16 +328,15 @@ export default function Progress() {
 
   const uniqueUnits = [...new Set(rows.map((/** @type {any} */ r) => r.critico_para).filter(Boolean))].sort();
   const uniqueYears = [...new Set(rows.filter(r => r.fecha_respuesta).map(r => r.fecha_respuesta.slice(0, 4)))].sort();
-  const activeMonths = new Set(rows.filter(r => r.fecha_respuesta).map(r => r.fecha_respuesta.slice(5, 7)));
 
   const hasAnyFilter =
-    unitFilter !== 'all' || tipoFilter !== 'all' || statusFilter !== 'all' ||
+    selectedUnits.length > 0 || tipoFilter !== 'all' || statusFilter !== 'all' ||
     search || selectedYears.length > 0 || selectedMonths.length > 0;
 
   const filteredRows = useMemo(() => {
     const hasDateFilter = selectedYears.length > 0 || selectedMonths.length > 0;
     return rows.filter(r => {
-      if (unitFilter !== 'all' && r.critico_para !== unitFilter) return false;
+      if (selectedUnits.length > 0 && !selectedUnits.includes(r.critico_para)) return false;
       if (tipoFilter !== 'all' && r.tipo !== tipoFilter) return false;
       if (statusFilter !== 'all' && r.estado !== statusFilter) return false;
       if (hasDateFilter) {
@@ -353,23 +352,25 @@ export default function Progress() {
       }
       return true;
     });
-  }, [rows, unitFilter, tipoFilter, statusFilter, selectedYears, selectedMonths, search]);
+  }, [rows, selectedUnits, tipoFilter, statusFilter, selectedYears, selectedMonths, search]);
 
   const filteredPendingRowsForUnit = useMemo(() => {
-    if (unitFilter === 'all') return [];
-    return rows.filter(r => r.critico_para === unitFilter && r.estado === 'pendiente');
-  }, [rows, unitFilter]);
+    if (selectedUnits.length !== 1) return [];
+    return rows.filter(r => r.critico_para === selectedUnits[0] && r.estado === 'pendiente');
+  }, [rows, selectedUnits]);
+
+  const singleUnit = selectedUnits.length === 1 ? selectedUnits[0] : null;
 
   const shouldShowMailButton =
-    unitFilter !== 'all' &&
+    singleUnit !== null &&
     statusFilter === 'pendiente' &&
-    filteredRows.some(r => r.estado === 'pendiente' && r.critico_para === unitFilter);
+    filteredRows.some(r => r.estado === 'pendiente' && r.critico_para === singleUnit);
 
   const completedCount = filteredRows.filter(r => r.estado === 'completado').length;
   const pendingCount = filteredRows.filter(r => r.estado === 'pendiente').length;
   const total = filteredRows.length;
   const filterDescription = buildFilterDescription({
-    unitFilter,
+    selectedUnits,
     tipoFilter,
     statusFilter,
     search,
@@ -377,12 +378,12 @@ export default function Progress() {
     selectedMonths,
   });
   const emailHtml = useMemo(
-    () => buildEmailHtml(unitFilter, filteredPendingRowsForUnit),
-    [unitFilter, filteredPendingRowsForUnit],
+    () => buildEmailHtml(singleUnit ?? '', filteredPendingRowsForUnit),
+    [singleUnit, filteredPendingRowsForUnit],
   );
   const emailPlainText = useMemo(
-    () => buildEmailPlainText(unitFilter, filteredPendingRowsForUnit),
-    [unitFilter, filteredPendingRowsForUnit],
+    () => buildEmailPlainText(singleUnit ?? '', filteredPendingRowsForUnit),
+    [singleUnit, filteredPendingRowsForUnit],
   );
   const Provider = /** @type {any} */ (TooltipProvider);
 
@@ -472,18 +473,6 @@ export default function Progress() {
               className="pl-9 w-full sm:w-56"
             />
           </div>
-          <Select value={unitFilter} onValueChange={setUnitFilter}>
-            <SelectTrigger className="w-full sm:w-52">
-              <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-              <SelectValue placeholder="Critico para" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las unidades</SelectItem>
-              {uniqueUnits.map(u => (
-                <SelectItem key={u} value={u}>{u}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Select value={tipoFilter} onValueChange={setTipoFilter}>
             <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="Tipo" />
@@ -516,8 +505,38 @@ export default function Progress() {
           )}
         </div>
 
-        {uniqueYears.length > 0 && (
-          <div className="space-y-2">
+        {uniqueUnits.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-[3.5rem]">
+              <Filter className="w-3 h-3" />
+              Unidad:
+            </span>
+            {uniqueUnits.map(u => (
+              <button
+                key={u}
+                onClick={() => setSelectedUnits(prev => toggle(prev, u))}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  selectedUnits.includes(u)
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:border-primary/50'
+                }`}
+              >
+                {u}
+              </button>
+            ))}
+            {selectedUnits.length > 0 && (
+              <button
+                onClick={() => setSelectedUnits([])}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {uniqueYears.length > 0 && (
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-xs text-muted-foreground min-w-[2.5rem]">Anio:</span>
               {uniqueYears.map(yr => (
@@ -542,32 +561,32 @@ export default function Progress() {
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs text-muted-foreground min-w-[2.5rem]">Mes:</span>
-              {MONTHS.filter(m => activeMonths.has(m.value)).map(m => (
-                <button
-                  key={m.value}
-                  onClick={() => setSelectedMonths(prev => toggle(prev, m.value))}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                    selectedMonths.includes(m.value)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border text-muted-foreground hover:border-primary/50'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-              {selectedMonths.length > 0 && (
-                <button
-                  onClick={() => setSelectedMonths([])}
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                >
-                  Limpiar
-                </button>
-              )}
-            </div>
+          )}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted-foreground min-w-[2.5rem]">Mes:</span>
+            {MONTHS.map(m => (
+              <button
+                key={m.value}
+                onClick={() => setSelectedMonths(prev => toggle(prev, m.value))}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  selectedMonths.includes(m.value)
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:border-primary/50'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+            {selectedMonths.length > 0 && (
+              <button
+                onClick={() => setSelectedMonths([])}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Limpiar
+              </button>
+            )}
           </div>
-        )}
+        </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex gap-3 flex-wrap">
@@ -580,7 +599,7 @@ export default function Progress() {
               {pendingCount} pendientes ({total ? Math.round((pendingCount / total) * 100) : 0}%)
             </Badge>
           </div>
-          {unitFilter !== 'all' && statusFilter === 'pendiente' && !shouldShowMailButton && !isLoading && (
+          {singleUnit !== null && statusFilter === 'pendiente' && !shouldShowMailButton && !isLoading && (
             <span className="text-xs text-muted-foreground">
               No hay proveedores pendientes para generar correo en la unidad seleccionada.
             </span>
@@ -677,7 +696,7 @@ export default function Progress() {
         <Dialog open={isMailModalOpen} onOpenChange={setIsMailModalOpen}>
           <DialogContent className="max-h-[80vh] w-[calc(100vw-1.5rem)] max-w-4xl grid-rows-[auto,minmax(0,1fr),auto] gap-0 overflow-hidden p-0 sm:w-full">
             <DialogHeader className="border-b px-5 py-4 pr-11 sm:px-6">
-              <DialogTitle>Correo para {unitFilter}</DialogTitle>
+              <DialogTitle>Correo para {singleUnit ?? ''}</DialogTitle>
               <DialogDescription>
                 Vista previa lista para copiar en Outlook o Gmail.
               </DialogDescription>
@@ -686,7 +705,7 @@ export default function Progress() {
             <div className="min-h-0 overflow-y-auto bg-muted/30 px-4 py-4 sm:px-6">
               <div className="mb-3 flex flex-col gap-1 rounded-md border bg-background px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-medium text-foreground">Asunto</span>
-                <span className="text-muted-foreground sm:text-right">{buildEmailSubject(unitFilter)}</span>
+                <span className="text-muted-foreground sm:text-right">{buildEmailSubject(singleUnit ?? '')}</span>
               </div>
 
               <div className="overflow-x-auto rounded-md border bg-white p-4 shadow-sm sm:p-6">
