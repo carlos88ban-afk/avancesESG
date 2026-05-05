@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
 import { progressService } from '@/api/services';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -372,198 +371,17 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
 </Workbook>`;
 }
 
-// 2 cm × 6 cm en puntos (1 cm = 28.3465 pt)
-const COMMENT_HEIGHT_PT = 56.7;
-const COMMENT_WIDTH_PT = 170.1;
-
-const _crc32Table = (() => {
-  const t = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[i] = c;
-  }
-  return t;
-})();
-
-function crc32(data) {
-  let crc = 0xffffffff;
-  for (const b of data) crc = _crc32Table[(crc ^ b) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-async function inflateAsync(data) {
-  const ds = new DecompressionStream('deflate-raw');
-  const writer = ds.writable.getWriter();
-  await writer.write(data);
-  await writer.close();
-  const chunks = [];
-  const reader = ds.readable.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-  const out = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0));
-  let off = 0;
-  for (const c of chunks) { out.set(c, off); off += c.length; }
-  return out;
-}
-
-async function deflateAsync(data) {
-  const cs = new CompressionStream('deflate-raw');
-  const writer = cs.writable.getWriter();
-  await writer.write(data);
-  await writer.close();
-  const chunks = [];
-  const reader = cs.readable.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-  const out = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0));
-  let off = 0;
-  for (const c of chunks) { out.set(c, off); off += c.length; }
-  return out;
-}
-
-async function parseZip(buf) {
-  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const dec = new TextDecoder();
-  let eocdPos = -1;
-  for (let i = buf.byteLength - 22; i >= 0; i--) {
-    if (dv.getUint32(i, true) === 0x06054b50) { eocdPos = i; break; }
-  }
-  if (eocdPos < 0) return [];
-  const cdOff = dv.getUint32(eocdPos + 16, true);
-  const cdSize = dv.getUint32(eocdPos + 12, true);
-  const entries = [];
-  let pos = cdOff;
-  while (pos < cdOff + cdSize) {
-    if (dv.getUint32(pos, true) !== 0x02014b50) break;
-    const method  = dv.getUint16(pos + 10, true);
-    const cmpSize = dv.getUint32(pos + 20, true);
-    const fnLen   = dv.getUint16(pos + 28, true);
-    const extLen  = dv.getUint16(pos + 30, true);
-    const cmtLen  = dv.getUint16(pos + 32, true);
-    const lOff    = dv.getUint32(pos + 42, true);
-    const name = dec.decode(buf.subarray(pos + 46, pos + 46 + fnLen));
-    entries.push({ name, method, cmpSize, lOff });
-    pos += 46 + fnLen + extLen + cmtLen;
-  }
-  const files = [];
-  for (const { name, method, cmpSize, lOff } of entries) {
-    const lfnLen  = dv.getUint16(lOff + 26, true);
-    const lextLen = dv.getUint16(lOff + 28, true);
-    const dataStart = lOff + 30 + lfnLen + lextLen;
-    const comp = buf.slice(dataStart, dataStart + cmpSize);
-    const data = method === 8 ? await inflateAsync(comp) : comp.slice();
-    files.push({ name, data });
-  }
-  return files;
-}
-
-async function buildZip(files) {
-  const enc = new TextEncoder();
-  const parts = [];
-  const cdEntries = [];
-  let offset = 0;
-  for (const { name, data } of files) {
-    const nameBytes = enc.encode(name);
-    const cmpData = await deflateAsync(data);
-    const crcVal = crc32(data);
-    const lh = new Uint8Array(30 + nameBytes.length);
-    const lv = new DataView(lh.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
-    lv.setUint16(6, 0, true);
-    lv.setUint16(8, 8, true);
-    lv.setUint16(10, 0, true);
-    lv.setUint16(12, 0, true);
-    lv.setUint32(14, crcVal, true);
-    lv.setUint32(18, cmpData.length, true);
-    lv.setUint32(22, data.length, true);
-    lv.setUint16(26, nameBytes.length, true);
-    lv.setUint16(28, 0, true);
-    lh.set(nameBytes, 30);
-    cdEntries.push({ nameBytes, crcVal, cmpSize: cmpData.length, ucmpSize: data.length, localOffset: offset });
-    offset += lh.length + cmpData.length;
-    parts.push(lh, cmpData);
-  }
-  const cdStart = offset;
-  for (const { nameBytes, crcVal, cmpSize, ucmpSize, localOffset } of cdEntries) {
-    const cd = new Uint8Array(46 + nameBytes.length);
-    const cv = new DataView(cd.buffer);
-    cv.setUint32(0, 0x02014b50, true);
-    cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
-    cv.setUint16(8, 0, true);  cv.setUint16(10, 8, true);
-    cv.setUint16(12, 0, true); cv.setUint16(14, 0, true);
-    cv.setUint32(16, crcVal, true);
-    cv.setUint32(20, cmpSize, true);
-    cv.setUint32(24, ucmpSize, true);
-    cv.setUint16(28, nameBytes.length, true);
-    cv.setUint16(30, 0, true); cv.setUint16(32, 0, true);
-    cv.setUint16(34, 0, true); cv.setUint16(36, 0, true);
-    cv.setUint32(38, 0, true);
-    cv.setUint32(42, localOffset, true);
-    cd.set(nameBytes, 46);
-    parts.push(cd);
-    offset += cd.length;
-  }
-  const cdSize = offset - cdStart;
-  const eocd = new Uint8Array(22);
-  const ev = new DataView(eocd.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(4, 0, true); ev.setUint16(6, 0, true);
-  ev.setUint16(8, files.length, true);
-  ev.setUint16(10, files.length, true);
-  ev.setUint32(12, cdSize, true);
-  ev.setUint32(16, cdStart, true);
-  ev.setUint16(20, 0, true);
-  parts.push(eocd);
-  const total = parts.reduce((s, p) => s + p.length, 0);
-  const out = new Uint8Array(total);
-  let p = 0;
-  for (const part of parts) { out.set(part, p); p += part.length; }
-  return out;
-}
-
-async function modifyXlsxCommentVml(uint8, widthPt, heightPt) {
-  const files = await parseZip(uint8);
-  if (!files.length) return uint8;
-  let modified = false;
-  for (const file of files) {
-    if (/xl\/drawings\/vmlDrawing\d+\.vml$/.test(file.name)) {
-      const text = new TextDecoder().decode(file.data);
-      const newText = text.replace(
-        /(style='[^']*?)width:\d+(?:\.\d+)?pt;height:\d+(?:\.\d+)?pt/g,
-        `$1width:${widthPt.toFixed(1)}pt;height:${heightPt.toFixed(1)}pt`,
-      );
-      if (newText !== text) {
-        file.data = new TextEncoder().encode(newText);
-        modified = true;
-      }
-    }
-  }
-  if (!modified) return uint8;
-  return buildZip(files);
-}
-
 /** @param {any[]} exportRows @param {any[]} allRows @param {string} lastStatusDate @param {string} currentStatusDate */
-async function downloadExcelReport(exportRows, allRows, lastStatusDate, currentStatusDate) {
+function downloadExcelReport(exportRows, allRows, lastStatusDate, currentStatusDate) {
   const xml = buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate);
-  const wb = XLSX.read(xml, { type: 'string', cellStyles: true });
-  const arr = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
-  const xlsxData = await modifyXlsxCommentVml(arr, COMMENT_WIDTH_PT, COMMENT_HEIGHT_PT);
-  const blob = new Blob([xlsxData], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  const blob = new Blob([xml], {
+    type: 'application/vnd.ms-excel;charset=utf-8',
   });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   const datePart = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `reporte_avances_esg_${datePart}.xlsx`;
+  link.download = `reporte_avances_esg_${datePart}.xls`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
