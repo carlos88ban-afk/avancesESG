@@ -148,34 +148,133 @@ function xmlRow(cells, height = 22) {
   return `<Row ss:Height="${height}">${cells.join('')}</Row>`;
 }
 
-function buildExcelXml(rows, filterDescription) {
+function getUnitTypeStats(rows, unit, tipo, lastStatusDate, currentStatusDate) {
+  const typeRows = rows.filter(r => r.critico_para === unit && r.tipo === tipo);
+  if (!typeRows.length) return null;
+  const total = typeRows.length;
+  const completedRows = typeRows.filter(r => r.estado === 'completado');
+  const completed = completedRows.length;
+  const pctCumplimiento = `${Math.round((completed / total) * 100)}%`;
+  let pctAvance = '-';
+  if (lastStatusDate && currentStatusDate) {
+    const lastCount = completedRows.filter(
+      r => r.fecha_respuesta && r.fecha_respuesta.slice(0, 10) <= lastStatusDate
+    ).length;
+    const currentCount = completedRows.filter(
+      r => r.fecha_respuesta && r.fecha_respuesta.slice(0, 10) <= currentStatusDate
+    ).length;
+    if (lastCount > 0) {
+      pctAvance = `${Math.round(((currentCount - lastCount) / lastCount) * 100)}%`;
+    }
+  }
+  return { total, completed, pctCumplimiento, pctAvance };
+}
+
+function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
   const generatedAt = formatDateTime();
-  const completed = rows.filter(r => r.estado === 'completado').length;
-  const pending = rows.filter(r => r.estado === 'pendiente').length;
-  const total = rows.length;
+  const completed = exportRows.filter(r => r.estado === 'completado').length;
+  const pending = exportRows.filter(r => r.estado === 'pendiente').length;
+  const total = exportRows.length;
   const completionRate = total ? `${Math.round((completed / total) * 100)}%` : '0%';
-  const byUnit = Object.entries(countBy(rows, 'critico_para')).sort((a, b) => b[1] - a[1]);
+
+  const PUBLIC_KEYS = ['spsa', 'farmacias peruanas', 'real plaza'];
+  const isPublic = (unit) => PUBLIC_KEYS.some(k => unit?.toLowerCase().includes(k));
+  const byUnit = Object.entries(countBy(allRows, 'critico_para')).sort((a, b) => b[1] - a[1]);
+  const publicUnits = byUnit.filter(([unit]) => isPublic(unit));
+  const privateUnits = byUnit.filter(([unit]) => !isPublic(unit));
+
+  const allUnits = [...new Set(allRows.map(r => r.critico_para).filter(Boolean))].sort();
+  const resumenDataRows = [];
+  for (const unit of allUnits) {
+    const retailStats = getUnitTypeStats(allRows, unit, 'retail', lastStatusDate, currentStatusDate);
+    const noRetailStats = getUnitTypeStats(allRows, unit, 'no retail', lastStatusDate, currentStatusDate);
+    resumenDataRows.push(xmlRow(retailStats
+      ? [
+          xmlCell(unit, 'TextBold'),
+          xmlCell('Retail', 'Text'),
+          xmlCell(retailStats.completed, 'Number', 'Number'),
+          xmlCell(retailStats.total, 'Number', 'Number'),
+          xmlCell(retailStats.pctCumplimiento, 'Center'),
+          xmlCell(retailStats.pctAvance, 'Center'),
+        ]
+      : [
+          xmlCell(unit, 'TextBold'),
+          xmlCell('Retail', 'Text'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+        ]
+    ));
+    resumenDataRows.push(xmlRow(noRetailStats
+      ? [
+          xmlCell('', 'Blank'),
+          xmlCell('No retail', 'Text'),
+          xmlCell(noRetailStats.completed, 'Number', 'Number'),
+          xmlCell(noRetailStats.total, 'Number', 'Number'),
+          xmlCell(noRetailStats.pctCumplimiento, 'Center'),
+          xmlCell(noRetailStats.pctAvance, 'Center'),
+        ]
+      : [
+          xmlCell('', 'Blank'),
+          xmlCell('No retail', 'Text'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+          xmlCell('-', 'Center'),
+        ]
+    ));
+  }
+  const allCompleted = allRows.filter(r => r.estado === 'completado').length;
+  const allTotal = allRows.length;
+  const allPctCumplimiento = allTotal > 0 ? `${Math.round((allCompleted / allTotal) * 100)}%` : '0%';
+  resumenDataRows.push(xmlRow([
+    xmlCell('PROMEDIO', 'TextBold'),
+    xmlCell('', 'Blank'),
+    xmlCell(allCompleted, 'Number', 'Number'),
+    xmlCell(allTotal, 'Number', 'Number'),
+    xmlCell(allPctCumplimiento, 'Center'),
+    xmlCell('-', 'Center'),
+  ]));
 
   const summaryRows = [
-    xmlRow([xmlCell('Reporte de avance de encuestas ESG', 'Title', 'String', 3)], 30),
-    xmlRow([xmlCell('Fecha de generacion', 'MetaLabel'), xmlCell(generatedAt, 'MetaValue')]),
-    xmlRow([xmlCell('Filtros aplicados', 'MetaLabel'), xmlCell(filterDescription, 'MetaValue', 'String', 2)]),
+    xmlRow([xmlCell('Reporte de avance de encuestas ESG', 'Title', 'String', 5)], 30),
+    xmlRow([xmlCell('Fecha de generacion', 'MetaLabel'), xmlCell(generatedAt, 'MetaValue', 'String', 4)]),
     xmlRow([xmlCell('', 'Blank')], 10),
-    xmlRow([xmlCell('Resumen ejecutivo', 'Section', 'String', 1)], 24),
+    xmlRow([xmlCell('Resumen ejecutivo', 'Section', 'String', 5)], 24),
     xmlRow([xmlCell('Total proveedores', 'TextBold'), xmlCell(total, 'Number', 'Number')]),
     xmlRow([xmlCell('Completados', 'TextBold'), xmlCell(completed, 'StatusComplete', 'Number')]),
     xmlRow([xmlCell('Pendientes', 'TextBold'), xmlCell(pending, 'StatusPending', 'Number')]),
     xmlRow([xmlCell('Avance total', 'TextBold'), xmlCell(completionRate, 'MetaValue')]),
     xmlRow([xmlCell('', 'Blank')], 10),
-    xmlRow([xmlCell('Resumen por unidad', 'Section', 'String', 1)], 24),
-    xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
-    ...byUnit.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+    xmlRow([xmlCell('Resumen por unidad', 'Section', 'String', 5)], 24),
+    ...(publicUnits.length ? [
+      xmlRow([xmlCell('InRetail (Empresas Públicas)', 'TextBold', 'String', 1)]),
+      xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
+      ...publicUnits.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+    ] : []),
+    ...(privateUnits.length ? [
+      ...(publicUnits.length ? [xmlRow([xmlCell('', 'Blank')], 8)] : []),
+      xmlRow([xmlCell('Empresas Privadas', 'TextBold', 'String', 1)]),
+      xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
+      ...privateUnits.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+    ] : []),
+    xmlRow([xmlCell('', 'Blank')], 10),
+    xmlRow([xmlCell('Resumen', 'Section', 'String', 5)], 24),
+    xmlRow([
+      xmlCell('Unidad de negocio', 'Header'),
+      xmlCell('Retail / No retail', 'Header'),
+      xmlCell('Total prov. evaluados ASG', 'Header'),
+      xmlCell('Total prov. criticos', 'Header'),
+      xmlCell('% de cumplimiento', 'Header'),
+      xmlCell('% avance ultimo status', 'Header'),
+    ], 28),
+    ...resumenDataRows,
   ].join('');
 
   const detailRows = [
     xmlRow([xmlCell('Reporte de avance de encuestas ESG', 'Title', 'String', REPORT_COLUMNS.length - 1)], 30),
     xmlRow([xmlCell('Fecha de generacion', 'MetaLabel'), xmlCell(generatedAt, 'MetaValue', 'String', 2)]),
-    xmlRow([xmlCell('Filtros aplicados', 'MetaLabel'), xmlCell(filterDescription, 'MetaValue', 'String', 6)]),
     xmlRow([
       xmlCell('Total proveedores', 'MetaLabel'),
       xmlCell(total, 'Number', 'Number'),
@@ -186,7 +285,7 @@ function buildExcelXml(rows, filterDescription) {
     ]),
     xmlRow([xmlCell('', 'Blank')], 10),
     xmlRow(REPORT_COLUMNS.map(col => xmlCell(col.header, 'Header')), 24),
-    ...rows.map(row => xmlRow(REPORT_COLUMNS.map(col => {
+    ...exportRows.map(row => xmlRow(REPORT_COLUMNS.map(col => {
       if (col.key === 'fecha_respuesta') return xmlCell(formatDate(row.fecha_respuesta), 'Center');
       if (col.key === 'estado') return xmlCell(normalizeStatus(row.estado), getStatusStyle(row.estado));
       return xmlCell(row[col.key] || '-', col.key === 'ruc' ? 'Center' : 'Text');
@@ -194,6 +293,7 @@ function buildExcelXml(rows, filterDescription) {
   ].join('');
 
   const detailColumns = REPORT_COLUMNS.map(col => `<Column ss:Width="${col.width * 6}"/>`).join('');
+  const summaryColumns = `<Column ss:Width="180"/><Column ss:Width="120"/><Column ss:Width="160"/><Column ss:Width="140"/><Column ss:Width="110"/><Column ss:Width="160"/>`;
 
   return `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
@@ -218,17 +318,17 @@ function buildExcelXml(rows, filterDescription) {
   <Style ss:ID="Blank"/>
  </Styles>
  <Worksheet ss:Name="Resumen ejecutivo">
-  <Table><Column ss:Width="210"/><Column ss:Width="150"/><Column ss:Width="150"/><Column ss:Width="150"/>${summaryRows}</Table>
+  <Table>${summaryColumns}${summaryRows}</Table>
  </Worksheet>
  <Worksheet ss:Name="Detalle">
   <Table>${detailColumns}${detailRows}</Table>
-  <AutoFilter x:Range="R6C1:R${Math.max(6, rows.length + 6)}C${REPORT_COLUMNS.length}" xmlns="urn:schemas-microsoft-com:office:excel"/>
+  <AutoFilter x:Range="R5C1:R${Math.max(5, exportRows.length + 5)}C${REPORT_COLUMNS.length}" xmlns="urn:schemas-microsoft-com:office:excel"/>
  </Worksheet>
 </Workbook>`;
 }
 
-function downloadExcelReport(rows, filterDescription) {
-  const xml = buildExcelXml(rows, filterDescription);
+function downloadExcelReport(exportRows, allRows, lastStatusDate, currentStatusDate) {
+  const xml = buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate);
   const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -316,6 +416,8 @@ export default function Progress() {
   const [selectedYears, setSelectedYears] = useState([]);
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [isMailModalOpen, setIsMailModalOpen] = useState(false);
+  const [lastStatusDate, setLastStatusDate] = useState('');
+  const [currentStatusDate, setCurrentStatusDate] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['progress'],
@@ -369,14 +471,6 @@ export default function Progress() {
   const completedCount = filteredRows.filter(r => r.estado === 'completado').length;
   const pendingCount = filteredRows.filter(r => r.estado === 'pendiente').length;
   const total = filteredRows.length;
-  const filterDescription = buildFilterDescription({
-    selectedUnits,
-    tipoFilter,
-    statusFilter,
-    search,
-    selectedYears,
-    selectedMonths,
-  });
   const emailHtml = useMemo(
     () => buildEmailHtml(singleUnit ?? '', filteredPendingRowsForUnit),
     [singleUnit, filteredPendingRowsForUnit],
@@ -399,7 +493,7 @@ export default function Progress() {
       return;
     }
 
-    downloadExcelReport(exportRows, filterDescription);
+    downloadExcelReport(exportRows, rows, lastStatusDate, currentStatusDate);
     toast.success('Reporte Excel generado');
   };
 
@@ -440,26 +534,51 @@ export default function Progress() {
               Estado de completacion de encuestas ESG por proveedor y unidad
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0 gap-2"
-              onClick={handleExportExcel}
-              disabled={isLoading}
-            >
-              <Download className="w-4 h-4" />
-              Descargar Excel
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0 gap-2"
-              onClick={() => queryClient.invalidateQueries({ queryKey: ['progress'] })}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Actualizar
-            </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-2"
+                onClick={handleExportExcel}
+                disabled={isLoading}
+              >
+                <Download className="w-4 h-4" />
+                Descargar Excel
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-2"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ['progress'] })}
+              >
+                <RefreshCw className="w-4 h-4" />
+                Actualizar
+              </Button>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground font-medium">Período para calcular avance en reporte:</span>
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs text-muted-foreground whitespace-nowrap">Último status:</label>
+                  <Input
+                    type="date"
+                    value={lastStatusDate}
+                    onChange={e => setLastStatusDate(e.target.value)}
+                    className="h-7 w-36 text-xs px-2"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs text-muted-foreground whitespace-nowrap">Status actual:</label>
+                  <Input
+                    type="date"
+                    value={currentStatusDate}
+                    onChange={e => setCurrentStatusDate(e.target.value)}
+                    className="h-7 w-36 text-xs px-2"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
