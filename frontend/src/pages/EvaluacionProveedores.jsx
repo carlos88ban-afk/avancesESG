@@ -1,11 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { evaluacionService } from '@/api/services';
+import { evaluacionService, supplierService } from '@/api/services';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle2 } from 'lucide-react';
+
+const TYPE_FILTERS = [
+  { value: 'all', label: 'Todos' },
+  { value: 'critical', label: 'Crítico' },
+  { value: 'non-critical', label: 'No crítico' },
+];
 
 const MONTHS = [
   { value: '01', label: 'Ene' },
@@ -32,10 +38,30 @@ function toggle(arr, val) {
   return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeRuc(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function getProviderKey(row) {
+  const ruc = normalizeRuc(row?.ruc);
+  if (ruc) return `ruc:${ruc}`;
+  return `name:${normalizeText(row?.nombre || row?.name)}`;
+}
+
 export default function EvaluacionProveedores() {
   const [selectedYears, setSelectedYears] = useState([]);
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [selectedUnits, setSelectedUnits] = useState([]);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   const { data, isLoading } = useQuery({
     queryKey: ['evaluacion-proveedores'],
@@ -43,7 +69,34 @@ export default function EvaluacionProveedores() {
     refetchOnWindowFocus: true,
   });
 
+  const { data: criticalSuppliersData = [], isLoading: isLoadingCriticalSuppliers } = useQuery({
+    queryKey: ['critical-suppliers'],
+    queryFn: () => supplierService.getActive(),
+    refetchOnWindowFocus: true,
+  });
+
   const rows = Array.isArray(data) ? data : [];
+  const criticalSuppliers = Array.isArray(criticalSuppliersData) ? criticalSuppliersData : [];
+
+  const criticalProviderKeys = useMemo(() => {
+    const keys = new Set();
+    const seenProviders = new Set();
+
+    criticalSuppliers.forEach(supplier => {
+      const providerId = supplier.proveedor_id || supplier.id;
+      const providerKey = providerId || getProviderKey(supplier);
+      if (!providerKey || seenProviders.has(providerKey)) return;
+
+      seenProviders.add(providerKey);
+
+      const ruc = normalizeRuc(supplier.ruc);
+      const name = normalizeText(supplier.name);
+      if (ruc) keys.add(`ruc:${ruc}`);
+      if (name) keys.add(`name:${name}`);
+    });
+
+    return keys;
+  }, [criticalSuppliers]);
 
   const uniqueUnits = useMemo(
     () => [...new Set(rows.map(r => r.unidad).filter(Boolean))].sort(),
@@ -61,7 +114,16 @@ export default function EvaluacionProveedores() {
   );
 
   const filteredRows = useMemo(() => {
+    const seenCriticalProviders = new Set();
+
     return rows.filter(r => {
+      const ruc = normalizeRuc(r.ruc);
+      const name = normalizeText(r.nombre);
+      const isCritical = (ruc && criticalProviderKeys.has(`ruc:${ruc}`)) ||
+        (name && criticalProviderKeys.has(`name:${name}`));
+
+      if (typeFilter === 'critical' && !isCritical) return false;
+      if (typeFilter === 'non-critical' && isCritical) return false;
       if (selectedUnits.length > 0 && !selectedUnits.includes(r.unidad)) return false;
       if (selectedYears.length > 0 || selectedMonths.length > 0) {
         if (!r.fecha) return false;
@@ -71,12 +133,17 @@ export default function EvaluacionProveedores() {
         if (selectedYears.length > 0 && !selectedYears.includes(yr)) return false;
         if (selectedMonths.length > 0 && !selectedMonths.includes(mo)) return false;
       }
+      if (typeFilter === 'critical') {
+        const providerKey = getProviderKey(r);
+        if (seenCriticalProviders.has(providerKey)) return false;
+        seenCriticalProviders.add(providerKey);
+      }
       return true;
     });
-  }, [rows, selectedYears, selectedMonths, selectedUnits]);
+  }, [rows, selectedYears, selectedMonths, selectedUnits, typeFilter, criticalProviderKeys]);
 
-  const hasFilters = selectedYears.length > 0 || selectedMonths.length > 0 || selectedUnits.length > 0;
-  const showFilters = !isLoading && rows.length > 0;
+  const hasFilters = selectedYears.length > 0 || selectedMonths.length > 0 || selectedUnits.length > 0 || typeFilter !== 'all';
+  const showFilters = !isLoading && !isLoadingCriticalSuppliers && rows.length > 0;
 
   return (
     <div className="space-y-6">
@@ -89,6 +156,24 @@ export default function EvaluacionProveedores() {
 
       {showFilters && (
         <div className="space-y-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted-foreground w-10">Tipo:</span>
+            {TYPE_FILTERS.map(option => (
+              <button
+                key={option.value}
+                onClick={() => setTypeFilter(option.value)}
+                className={
+                  'text-xs px-2.5 py-1 rounded-full border transition-colors ' +
+                  (typeFilter === option.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:border-primary/50')
+                }
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-xs text-muted-foreground w-10">Año:</span>
             {uniqueYears.map(yr => (
@@ -189,7 +274,7 @@ export default function EvaluacionProveedores() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading
+              {isLoading || isLoadingCriticalSuppliers
                 ? Array(6).fill(0).map((_, i) => (
                     <TableRow key={i}>
                       {Array(4).fill(0).map((_, j) => (
