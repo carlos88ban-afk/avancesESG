@@ -138,10 +138,21 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function xmlCell(value, styleId = 'Text', type = 'String', mergeAcross = 0) {
+function xmlCell(value, styleId = 'Text', type = 'String', mergeAcross = 0, mergeDown = 0, index = 0) {
+  const indexAttr = index ? ` ss:Index="${index}"` : '';
   const mergeAttr = mergeAcross ? ` ss:MergeAcross="${mergeAcross}"` : '';
+  const mergeDownAttr = mergeDown ? ` ss:MergeDown="${mergeDown}"` : '';
   const safeValue = type === 'Number' ? Number(value || 0) : xmlEscape(value || '-');
-  return `<Cell ss:StyleID="${styleId}"${mergeAttr}><Data ss:Type="${type}">${safeValue}</Data></Cell>`;
+  return `<Cell ss:StyleID="${styleId}"${indexAttr}${mergeAttr}${mergeDownAttr}><Data ss:Type="${type}">${safeValue}</Data></Cell>`;
+}
+
+function xmlCellComment(value, comment, styleId = 'Center', index = 0) {
+  const indexAttr = index ? ` ss:Index="${index}"` : '';
+  const safeValue = xmlEscape(value || '-');
+  const commentPart = comment
+    ? `<Comment ss:Author="Sistema"><Data>${xmlEscape(comment)}</Data></Comment>`
+    : '';
+  return `<Cell ss:StyleID="${styleId}"${indexAttr}><Data ss:Type="String">${safeValue}</Data>${commentPart}</Cell>`;
 }
 
 function xmlRow(cells, height = 22) {
@@ -156,6 +167,7 @@ function getUnitTypeStats(rows, unit, tipo, lastStatusDate, currentStatusDate) {
   const completed = completedRows.length;
   const pctCumplimiento = `${Math.round((completed / total) * 100)}%`;
   let pctAvance = '-';
+  let avanceComment = '';
   if (lastStatusDate && currentStatusDate) {
     const lastCount = completedRows.filter(
       r => r.fecha_respuesta && r.fecha_respuesta.slice(0, 10) <= lastStatusDate
@@ -164,10 +176,15 @@ function getUnitTypeStats(rows, unit, tipo, lastStatusDate, currentStatusDate) {
       r => r.fecha_respuesta && r.fecha_respuesta.slice(0, 10) <= currentStatusDate
     ).length;
     if (lastCount > 0) {
-      pctAvance = `${Math.round(((currentCount - lastCount) / lastCount) * 100)}%`;
+      const nuevos = currentCount - lastCount;
+      const pct = Math.round((nuevos / lastCount) * 100);
+      pctAvance = `${pct}%`;
+      const fmtLast = formatDate(`${lastStatusDate}T00:00:00`);
+      const fmtCurrent = formatDate(`${currentStatusDate}T00:00:00`);
+      avanceComment = `Último status (${fmtLast}): ${lastCount} completados\nStatus actual (${fmtCurrent}): ${currentCount} completados\nNuevos: ${currentCount} - ${lastCount} = ${nuevos}\nCálculo: ${nuevos} / ${lastCount} = ${pct}%`;
     }
   }
-  return { total, completed, pctCumplimiento, pctAvance };
+  return { total, completed, pctCumplimiento, pctAvance, avanceComment };
 }
 
 function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
@@ -179,7 +196,15 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
 
   const PUBLIC_KEYS = ['spsa', 'farmacias peruanas', 'real plaza'];
   const isPublic = (unit) => PUBLIC_KEYS.some(k => unit?.toLowerCase().includes(k));
-  const byUnit = Object.entries(countBy(allRows, 'critico_para')).sort((a, b) => b[1] - a[1]);
+  const unitStatsMap = allRows.reduce((acc, r) => {
+    const unit = r.critico_para || 'Sin dato';
+    if (!acc[unit]) acc[unit] = { total: 0, completados: 0, pendientes: 0 };
+    acc[unit].total++;
+    if (r.estado === 'completado') acc[unit].completados++;
+    else acc[unit].pendientes++;
+    return acc;
+  }, {});
+  const byUnit = Object.entries(unitStatsMap).sort((a, b) => b[1].total - a[1].total);
   const publicUnits = byUnit.filter(([unit]) => isPublic(unit));
   const privateUnits = byUnit.filter(([unit]) => !isPublic(unit));
 
@@ -188,17 +213,18 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
   for (const unit of allUnits) {
     const retailStats = getUnitTypeStats(allRows, unit, 'retail', lastStatusDate, currentStatusDate);
     const noRetailStats = getUnitTypeStats(allRows, unit, 'no retail', lastStatusDate, currentStatusDate);
+    // Retail row: unit name merged down across both rows (MergeDown=1)
     resumenDataRows.push(xmlRow(retailStats
       ? [
-          xmlCell(unit, 'TextBold'),
+          xmlCell(unit, 'TextBold', 'String', 0, 1),
           xmlCell('Retail', 'Text'),
           xmlCell(retailStats.completed, 'Number', 'Number'),
           xmlCell(retailStats.total, 'Number', 'Number'),
           xmlCell(retailStats.pctCumplimiento, 'Center'),
-          xmlCell(retailStats.pctAvance, 'Center'),
+          xmlCellComment(retailStats.pctAvance, retailStats.avanceComment),
         ]
       : [
-          xmlCell(unit, 'TextBold'),
+          xmlCell(unit, 'TextBold', 'String', 0, 1),
           xmlCell('Retail', 'Text'),
           xmlCell('-', 'Center'),
           xmlCell('-', 'Center'),
@@ -206,18 +232,17 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
           xmlCell('-', 'Center'),
         ]
     ));
+    // No retail row: first column consumed by MergeDown, starts at index 2
     resumenDataRows.push(xmlRow(noRetailStats
       ? [
-          xmlCell('', 'Blank'),
-          xmlCell('No retail', 'Text'),
+          xmlCell('No retail', 'Text', 'String', 0, 0, 2),
           xmlCell(noRetailStats.completed, 'Number', 'Number'),
           xmlCell(noRetailStats.total, 'Number', 'Number'),
           xmlCell(noRetailStats.pctCumplimiento, 'Center'),
-          xmlCell(noRetailStats.pctAvance, 'Center'),
+          xmlCellComment(noRetailStats.pctAvance, noRetailStats.avanceComment),
         ]
       : [
-          xmlCell('', 'Blank'),
-          xmlCell('No retail', 'Text'),
+          xmlCell('No retail', 'Text', 'String', 0, 0, 2),
           xmlCell('-', 'Center'),
           xmlCell('-', 'Center'),
           xmlCell('-', 'Center'),
@@ -229,9 +254,8 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
   const allTotal = allRows.length;
   const allPctCumplimiento = allTotal > 0 ? `${Math.round((allCompleted / allTotal) * 100)}%` : '0%';
   resumenDataRows.push(xmlRow([
-    xmlCell('PROMEDIO', 'TextBold'),
-    xmlCell('', 'Blank'),
-    xmlCell(allCompleted, 'Number', 'Number'),
+    xmlCell('PROMEDIO', 'TextBold', 'String', 1),
+    xmlCell(allCompleted, 'Number', 'Number', 0, 0, 3),
     xmlCell(allTotal, 'Number', 'Number'),
     xmlCell(allPctCumplimiento, 'Center'),
     xmlCell('-', 'Center'),
@@ -249,15 +273,35 @@ function buildExcelXml(exportRows, allRows, lastStatusDate, currentStatusDate) {
     xmlRow([xmlCell('', 'Blank')], 10),
     xmlRow([xmlCell('Resumen por unidad', 'Section', 'String', 5)], 24),
     ...(publicUnits.length ? [
-      xmlRow([xmlCell('InRetail (Empresas Públicas)', 'TextBold', 'String', 1)]),
-      xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
-      ...publicUnits.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+      xmlRow([xmlCell('InRetail (Empresas Públicas)', 'TextBold', 'String', 3)]),
+      xmlRow([
+        xmlCell('Unidad de negocio', 'Header'),
+        xmlCell('Total proveedores', 'Header'),
+        xmlCell('Completados', 'Header'),
+        xmlCell('Pendientes', 'Header'),
+      ]),
+      ...publicUnits.map(([unit, stats]) => xmlRow([
+        xmlCell(unit, 'Text'),
+        xmlCell(stats.total, 'Number', 'Number'),
+        xmlCell(stats.completados, 'StatusComplete', 'Number'),
+        xmlCell(stats.pendientes, 'StatusPending', 'Number'),
+      ])),
     ] : []),
     ...(privateUnits.length ? [
       ...(publicUnits.length ? [xmlRow([xmlCell('', 'Blank')], 8)] : []),
-      xmlRow([xmlCell('Empresas Privadas', 'TextBold', 'String', 1)]),
-      xmlRow([xmlCell('Unidad de negocio', 'Header'), xmlCell('Total proveedores', 'Header')]),
-      ...privateUnits.map(([unit, count]) => xmlRow([xmlCell(unit, 'Text'), xmlCell(count, 'Number', 'Number')])),
+      xmlRow([xmlCell('Empresas Privadas', 'TextBold', 'String', 3)]),
+      xmlRow([
+        xmlCell('Unidad de negocio', 'Header'),
+        xmlCell('Total proveedores', 'Header'),
+        xmlCell('Completados', 'Header'),
+        xmlCell('Pendientes', 'Header'),
+      ]),
+      ...privateUnits.map(([unit, stats]) => xmlRow([
+        xmlCell(unit, 'Text'),
+        xmlCell(stats.total, 'Number', 'Number'),
+        xmlCell(stats.completados, 'StatusComplete', 'Number'),
+        xmlCell(stats.pendientes, 'StatusPending', 'Number'),
+      ])),
     ] : []),
     xmlRow([xmlCell('', 'Blank')], 10),
     xmlRow([xmlCell('Resumen', 'Section', 'String', 5)], 24),
