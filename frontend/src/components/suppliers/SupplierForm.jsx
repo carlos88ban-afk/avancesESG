@@ -226,12 +226,13 @@ export default function SupplierForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="baseRuc">RUC (opcional)</Label>
+                <Label htmlFor="baseRuc">RUC</Label>
                 <Input
                   id="baseRuc"
                   value={baseRuc}
                   onChange={(e) => setBaseRuc(e.target.value)}
                   placeholder="20100130204"
+                  required
                   autoComplete="off"
                 />
                 {baseRucConflict && (
