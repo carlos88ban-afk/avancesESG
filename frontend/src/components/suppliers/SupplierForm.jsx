@@ -317,12 +317,13 @@ export default function SupplierForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ruc">RUC (opcional)</Label>
+                <Label htmlFor="ruc">RUC</Label>
                 <Input
                   id="ruc"
                   value={rucInput}
                   onChange={(e) => setRucInput(e.target.value)}
                   placeholder="20100130204"
+                  required
                   autoComplete="off"
                 />
                 {rucConflict && (
