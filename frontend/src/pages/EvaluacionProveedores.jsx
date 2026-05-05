@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { evaluacionService, supplierService } from '@/api/services';
+import { evaluacionService, progressService } from '@/api/services';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -54,7 +54,16 @@ function normalizeRuc(value) {
 function getProviderKey(row) {
   const ruc = normalizeRuc(row?.ruc);
   if (ruc) return `ruc:${ruc}`;
-  return `name:${normalizeText(row?.nombre || row?.name)}`;
+  return `name:${normalizeText(row?.nombre || row?.name || row?.proveedor)}`;
+}
+
+function mapProgressRowToEvaluationRow(row) {
+  return {
+    nombre: row.proveedor,
+    ruc: row.ruc,
+    unidad: row.critico_para,
+    fecha: row.fecha_respuesta,
+  };
 }
 
 export default function EvaluacionProveedores() {
@@ -69,34 +78,54 @@ export default function EvaluacionProveedores() {
     refetchOnWindowFocus: true,
   });
 
-  const { data: criticalSuppliersData = [], isLoading: isLoadingCriticalSuppliers } = useQuery({
-    queryKey: ['critical-suppliers'],
-    queryFn: () => supplierService.getActive(),
+  const { data: progressData = [], isLoading: isLoadingProgress } = useQuery({
+    queryKey: ['progress'],
+    queryFn: () => progressService.getAll(),
     refetchOnWindowFocus: true,
   });
 
   const rows = Array.isArray(data) ? data : [];
-  const criticalSuppliers = Array.isArray(criticalSuppliersData) ? criticalSuppliersData : [];
+  const progressRows = Array.isArray(progressData) ? progressData : [];
 
-  const criticalProviderKeys = useMemo(() => {
-    const keys = new Set();
+  const completedCriticalRows = useMemo(() => {
     const seenProviders = new Set();
 
-    criticalSuppliers.forEach(supplier => {
-      const providerId = supplier.proveedor_id || supplier.id;
-      const providerKey = providerId || getProviderKey(supplier);
-      if (!providerKey || seenProviders.has(providerKey)) return;
+    return progressRows
+      .filter(row => row.estado === 'completado')
+      .filter(row => {
+        const providerKey = getProviderKey(row);
+        if (!providerKey || seenProviders.has(providerKey)) return false;
+        seenProviders.add(providerKey);
+        return true;
+      })
+      .map(mapProgressRowToEvaluationRow);
+  }, [progressRows]);
 
-      seenProviders.add(providerKey);
+  const allCriticalProviderKeys = useMemo(() => {
+    const keys = new Set();
 
+    progressRows.forEach(supplier => {
       const ruc = normalizeRuc(supplier.ruc);
-      const name = normalizeText(supplier.name);
+      const name = normalizeText(supplier.proveedor);
       if (ruc) keys.add(`ruc:${ruc}`);
       if (name) keys.add(`name:${name}`);
     });
 
     return keys;
-  }, [criticalSuppliers]);
+  }, [progressRows]);
+
+  const completedCriticalProviderKeys = useMemo(() => {
+    const keys = new Set();
+
+    completedCriticalRows.forEach(supplier => {
+      const ruc = normalizeRuc(supplier.ruc);
+      const name = normalizeText(supplier.nombre);
+      if (ruc) keys.add(`ruc:${ruc}`);
+      if (name) keys.add(`name:${name}`);
+    });
+
+    return keys;
+  }, [completedCriticalRows]);
 
   const uniqueUnits = useMemo(
     () => [...new Set(rows.map(r => r.unidad).filter(Boolean))].sort(),
@@ -114,15 +143,17 @@ export default function EvaluacionProveedores() {
   );
 
   const filteredRows = useMemo(() => {
-    const seenCriticalProviders = new Set();
+    const baseRows = typeFilter === 'critical' ? completedCriticalRows : rows;
 
-    return rows.filter(r => {
+    return baseRows.filter(r => {
       const ruc = normalizeRuc(r.ruc);
       const name = normalizeText(r.nombre);
-      const isCritical = (ruc && criticalProviderKeys.has(`ruc:${ruc}`)) ||
-        (name && criticalProviderKeys.has(`name:${name}`));
+      const isCritical = (ruc && allCriticalProviderKeys.has(`ruc:${ruc}`)) ||
+        (name && allCriticalProviderKeys.has(`name:${name}`));
+      const isCompletedCritical = (ruc && completedCriticalProviderKeys.has(`ruc:${ruc}`)) ||
+        (name && completedCriticalProviderKeys.has(`name:${name}`));
 
-      if (typeFilter === 'critical' && !isCritical) return false;
+      if (typeFilter === 'critical' && !isCompletedCritical) return false;
       if (typeFilter === 'non-critical' && isCritical) return false;
       if (selectedUnits.length > 0 && !selectedUnits.includes(r.unidad)) return false;
       if (selectedYears.length > 0 || selectedMonths.length > 0) {
@@ -133,17 +164,13 @@ export default function EvaluacionProveedores() {
         if (selectedYears.length > 0 && !selectedYears.includes(yr)) return false;
         if (selectedMonths.length > 0 && !selectedMonths.includes(mo)) return false;
       }
-      if (typeFilter === 'critical') {
-        const providerKey = getProviderKey(r);
-        if (seenCriticalProviders.has(providerKey)) return false;
-        seenCriticalProviders.add(providerKey);
-      }
       return true;
     });
-  }, [rows, selectedYears, selectedMonths, selectedUnits, typeFilter, criticalProviderKeys]);
+  }, [rows, completedCriticalRows, selectedYears, selectedMonths, selectedUnits, typeFilter, allCriticalProviderKeys, completedCriticalProviderKeys]);
 
   const hasFilters = selectedYears.length > 0 || selectedMonths.length > 0 || selectedUnits.length > 0 || typeFilter !== 'all';
-  const showFilters = !isLoading && !isLoadingCriticalSuppliers && rows.length > 0;
+  const isPageLoading = isLoading || isLoadingProgress;
+  const showFilters = !isPageLoading && rows.length > 0;
 
   return (
     <div className="space-y-6">
@@ -274,7 +301,7 @@ export default function EvaluacionProveedores() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading || isLoadingCriticalSuppliers
+              {isPageLoading
                 ? Array(6).fill(0).map((_, i) => (
                     <TableRow key={i}>
                       {Array(4).fill(0).map((_, j) => (
